@@ -299,6 +299,7 @@ final class FeatureRuntime: ObservableObject {
         .soundOutputSwitcher: {
             AppVolumeMixer.shared.syncWithPreferences()
             SoundOutputSwitcher.shared.syncWithPreferences()
+            BluetoothAudioRecoveryService.shared.syncWithPreferences()
         },
         .audioPriority: {
             // Priority owns no sibling CoreAudio listener stack. Keep the

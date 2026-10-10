@@ -2,6 +2,7 @@
 // Copyright (C) 2026 Vorssaint
 
 import AppKit
+import CoreAudio
 import IOKit
 
 /// Switches Bluetooth off while the Mac sleeps, so a closed laptop in a bag
@@ -114,5 +115,115 @@ final class BluetoothSleepService {
 
     private static func setPowered(_ on: Bool) {
         controllerPower?.set(on ? 1 : 0)
+    }
+}
+
+/// Restarts bluetoothd once when a Bluetooth speaker becomes the default audio
+/// output. A short route loss during the restart is part of the same episode.
+/// The persisted cooldown also covers app crashes and relaunches.
+final class BluetoothAudioRecoveryService {
+    static let shared = BluetoothAudioRecoveryService()
+    static let rulePath = "/etc/sudoers.d/vorssaint-imstevelin-bluetooth-audio"
+    private static let command = ["-n", "/usr/bin/pkill", "-x", "bluetoothd"]
+    private var timer: Timer?
+    private var policy = BluetoothAudioRecoveryPolicy()
+
+    private init() {}
+
+    static var isConfigured: Bool {
+        FileManager.default.fileExists(atPath: rulePath)
+            && Shell.run("/usr/bin/sudo", ["-n", "-l", "/usr/bin/pkill", "-x", "bluetoothd"],
+                         timeout: 3).status == 0
+    }
+
+    static func install(completion: @escaping (Bool) -> Void) {
+        let rule = "#\(getuid()) ALL=(root) NOPASSWD: /usr/bin/pkill -x bluetoothd"
+        let command = "mkdir -p /etc/sudoers.d && chmod 0755 /etc/sudoers.d && echo '\(rule)' > \(rulePath) && chmod 0440 \(rulePath) && /usr/sbin/visudo -c -f \(rulePath) || { rm -f \(rulePath); exit 1; }"
+        AdminShell.run(command, prompt: "Allow vorssaint-imstevelin to restart Bluetooth once when a speaker connects") { ok in
+            completion(ok && isConfigured)
+        }
+    }
+
+    static func remove(completion: @escaping (Bool) -> Void) {
+        guard FileManager.default.fileExists(atPath: rulePath) else { completion(true); return }
+        AdminShell.run("/bin/rm -f \(rulePath)", prompt: "Remove Bluetooth recovery authorization") {
+            completion($0 && !FileManager.default.fileExists(atPath: rulePath))
+        }
+    }
+
+    func syncWithPreferences() {
+        let enabled = AppFeature.soundOutputSwitcher.isAvailable
+            && UserDefaults.standard.bool(forKey: DefaultsKey.bluetoothAudioRecoveryEnabled)
+        guard enabled else {
+            timer?.invalidate()
+            timer = nil
+            policy = BluetoothAudioRecoveryPolicy()
+            return
+        }
+        guard timer == nil else { return }
+        sampleRoute()
+        timer = Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { [weak self] _ in
+            self?.sampleRoute()
+        }
+    }
+
+    private func sampleRoute(now: Date = Date()) {
+        let uid = Self.defaultBluetoothOutputUID()
+        let defaults = UserDefaults.standard
+        let previousTime = defaults.double(forKey: DefaultsKey.bluetoothAudioRecoveryLastAttempt)
+        let shouldAttempt = policy.observe(uid: uid, now: now,
+                                           previousAttempt: previousTime > 0
+                                               ? Date(timeIntervalSince1970: previousTime) : nil)
+        guard let uid else { return }
+        if defaults.string(forKey: DefaultsKey.bluetoothAudioRecoveryAwaitingReconnectUID) == uid {
+            // Suppress the first post-restart connection even if the daemon was
+            // unavailable longer than the ordinary cooldown.
+            if shouldAttempt || policy.reconnectedWithinEpisode {
+                defaults.removeObject(forKey: DefaultsKey.bluetoothAudioRecoveryAwaitingReconnectUID)
+            }
+            return
+        }
+        guard shouldAttempt, Self.isConfigured else { return }
+        // Write the guard before killing the daemon: even if the app exits,
+        // its reconnect cannot start another restart loop.
+        defaults.set(now.timeIntervalSince1970, forKey: DefaultsKey.bluetoothAudioRecoveryLastAttempt)
+        defaults.set(uid, forKey: DefaultsKey.bluetoothAudioRecoveryAwaitingReconnectUID)
+        DispatchQueue.global(qos: .utility).async {
+            _ = Shell.run("/usr/bin/sudo", Self.command, timeout: 10)
+        }
+    }
+
+    private static func defaultBluetoothOutputUID() -> String? {
+        let system = AudioObjectID(kAudioObjectSystemObject)
+        var defaultAddress = AudioObjectPropertyAddress(
+            mSelector: kAudioHardwarePropertyDefaultOutputDevice,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain)
+        var device = AudioObjectID(kAudioObjectUnknown)
+        var size = UInt32(MemoryLayout<AudioObjectID>.size)
+        guard AudioObjectGetPropertyData(system, &defaultAddress, 0, nil, &size, &device) == noErr,
+              device != AudioObjectID(kAudioObjectUnknown) else { return nil }
+        var transportAddress = AudioObjectPropertyAddress(
+            mSelector: kAudioDevicePropertyTransportType,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain)
+        var transport: UInt32 = 0
+        size = UInt32(MemoryLayout<UInt32>.size)
+        guard AudioObjectGetPropertyData(device, &transportAddress, 0, nil, &size, &transport) == noErr,
+              transport == kAudioDeviceTransportTypeBluetooth || transport == kAudioDeviceTransportTypeBluetoothLE
+        else { return nil }
+        var uidAddress = AudioObjectPropertyAddress(
+            mSelector: kAudioDevicePropertyDeviceUID,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain)
+        var uid: CFString = "" as CFString
+        size = UInt32(MemoryLayout<CFString>.size)
+        let status = withUnsafeMutablePointer(to: &uid) { pointer in
+            AudioObjectGetPropertyData(device, &uidAddress, 0, nil, &size,
+                                       UnsafeMutableRawPointer(pointer))
+        }
+        guard status == noErr else { return nil }
+        let result = uid as String
+        return result.isEmpty ? nil : result
     }
 }

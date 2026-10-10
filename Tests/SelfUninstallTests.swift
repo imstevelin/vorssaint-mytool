@@ -35,6 +35,9 @@ enum SelfUninstallContract {
             DispatchQueue.main.async { completion(ruleRemovalAllowed) }
         }
     }
+    enum BluetoothAudioRecoveryService {
+        static func remove(completion: @escaping (Bool) -> Void) { completion(true) }
+    }
     enum Shell {
         static func run(_ path: String, _ args: [String]) -> (status: Int32, output: String) {
             events.append("tccutil")

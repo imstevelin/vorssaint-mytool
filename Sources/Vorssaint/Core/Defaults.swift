@@ -242,6 +242,10 @@ enum DefaultsKey {
     // the next start, it means the previous one died on the way up.
     static let startupDidNotFinish = "startupDidNotFinish"
     static let bluetoothSleepEnabled = "bluetoothSleepEnabled"
+    static let bluetoothAudioRecoveryEnabled = "bluetoothAudioRecoveryEnabled"
+    // Local loop guard. Never move this to another Mac in a settings backup.
+    static let bluetoothAudioRecoveryLastAttempt = "bluetoothAudioRecoveryLastAttempt"
+    static let bluetoothAudioRecoveryAwaitingReconnectUID = "bluetoothAudioRecoveryAwaitingReconnectUID"
     static let bluetoothSleepRestoreOnWake = "bluetoothSleepRestoreOnWake"
     // Set only while Vorssaint owes a Bluetooth restore, so a Mac shut down
     // while asleep still gets it back on the next launch.
@@ -1344,6 +1348,7 @@ enum Defaults {
         DefaultsKey.keyboardBrightnessDecreaseShortcut: "option+command:27",
         DefaultsKey.keyboardBrightnessIncreaseShortcut: "option+command:24",
         DefaultsKey.bluetoothSleepEnabled: false,
+        DefaultsKey.bluetoothAudioRecoveryEnabled: false,
         DefaultsKey.bluetoothSleepRestoreOnWake: true,
         DefaultsKey.bluetoothSleepRestorePending: false,
         DefaultsKey.musicBlockEnabled: false,

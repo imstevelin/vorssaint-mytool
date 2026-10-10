@@ -2,6 +2,11 @@
 
 This is an unofficial fork of [Vorssaint](https://github.com/vorssaint/vorssaint-utils), maintained at [imstevelin/vorssaint-mytool](https://github.com/imstevelin/vorssaint-mytool). It is not an official Vorssaint build or endorsed by the upstream maintainer. The source remains GPL-3.0-or-later; see `LICENSE` and `TRADEMARKS.md`.
 
+## 1.0.2
+
+- Optional Bluetooth speaker recovery in Sound Output Switcher settings. After one administrator authorization, a new Bluetooth default output can restart `bluetoothd` with a narrowly scoped command.
+- Short disconnects, a persisted cooldown, and a reconnect marker prevent a restart loop. The feature is off by default and its authorization can be removed in Settings or during a full uninstall.
+
 ## 1.0.1
 
 - On first launch, import compatible explicit preferences from the official Vorssaint app on the same Mac. The official preferences stay unchanged. If this fork has already completed setup, its own choices take priority.

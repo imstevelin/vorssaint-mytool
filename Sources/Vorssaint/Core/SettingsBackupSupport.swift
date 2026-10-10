@@ -36,7 +36,8 @@ enum SettingsBackupSupport {
         }
         // An official backup predates this fork's display memory switches.
         // Importing it must not turn off choices made in the fork afterward.
-        for key in [DefaultsKey.windowRememberSizes, DefaultsKey.windowRestoreDisplayLayout]
+        for key in [DefaultsKey.windowRememberSizes, DefaultsKey.windowRestoreDisplayLayout,
+                    DefaultsKey.bluetoothAudioRecoveryEnabled]
             where settings[key] == nil {
             keys.remove(key)
         }
@@ -116,6 +117,8 @@ enum SettingsBackupSupport {
         DefaultsKey.spacesOrderRestartPending,
         // A Bluetooth restore owed by one sleeping Mac means nothing on another.
         DefaultsKey.bluetoothSleepRestorePending,
+        DefaultsKey.bluetoothAudioRecoveryLastAttempt,
+        DefaultsKey.bluetoothAudioRecoveryAwaitingReconnectUID,
         DefaultsKey.micMuteActive,
         DefaultsKey.micMuteSavedVolume,
         // Levels and device ids belong to the microphones of one Mac.

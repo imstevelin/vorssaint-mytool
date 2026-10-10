@@ -32,3 +32,44 @@ enum BluetoothSleepSupport {
         owesRestore && !isPoweredOn()
     }
 }
+
+/// One attempt per connection episode, with a persisted minimum interval.
+/// Route losses shorter than ten minutes (including bluetoothd's own restart)
+/// stay in the same episode.
+struct BluetoothAudioRecoveryPolicy {
+    static let cooldown: TimeInterval = 30 * 60
+    static let disconnectThreshold: TimeInterval = 10 * 60
+    private(set) var sampledInitialRoute = false
+    private(set) var lastConnectedUID: String?
+    private(set) var reconnectedWithinEpisode = false
+    private var absentSince: Date?
+
+    mutating func observe(uid: String?, now: Date, previousAttempt: Date?) -> Bool {
+        reconnectedWithinEpisode = false
+        if !sampledInitialRoute {
+            sampledInitialRoute = true
+            lastConnectedUID = uid
+            return false
+        }
+        guard let uid else {
+            if lastConnectedUID != nil {
+                if absentSince == nil { absentSince = now }
+                if let absentSince, now.timeIntervalSince(absentSince) >= Self.disconnectThreshold {
+                    lastConnectedUID = nil
+                }
+            }
+            return false
+        }
+        let wasAbsent = absentSince != nil
+        absentSince = nil
+        guard uid != lastConnectedUID else {
+            reconnectedWithinEpisode = wasAbsent
+            return false
+        }
+        lastConnectedUID = uid
+        // Bluetooth may re-enumerate with a different Core Audio UID after a
+        // daemon restart, so the minimum interval applies across all devices.
+        if let previousAttempt, now.timeIntervalSince(previousAttempt) < Self.cooldown { return false }
+        return true
+    }
+}

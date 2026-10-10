@@ -42,6 +42,7 @@ struct GeneralToolSettings: View {
                         SoundOutputSwitcherControls()
                     }
                     .settingsSectionAnchor(.soundOutputSwitcher, cornerRadius: 16)
+                    BluetoothAudioRecoverySettings()
                 case .audioPriority:
                     SettingsCard(title: l10n.s.audioPrioritySection) {
                         AudioPriorityDisclosure(initiallyExpanded: true, showsHeader: false)
@@ -57,6 +58,73 @@ struct GeneralToolSettings: View {
             .frame(maxWidth: 760)
             .frame(maxWidth: .infinity)
             .padding(22)
+        }
+    }
+}
+
+private struct BluetoothAudioRecoverySettings: View {
+    @ObservedObject private var l10n = L10n.shared
+    @AppStorage(DefaultsKey.bluetoothAudioRecoveryEnabled) private var enabled = false
+    @State private var configured = false
+    @State private var busy = false
+
+    private var chinese: Bool {
+        switch l10n.language {
+        case .zhTW, .zhHK, .zhHans: return true
+        default: return false
+        }
+    }
+
+    var body: some View {
+        SettingsCard(title: chinese ? "藍牙喇叭連線修復" : "Bluetooth speaker recovery") {
+            Toggle(chinese ? "連接藍牙喇叭時自動重啟藍牙服務" : "Restart Bluetooth when a speaker connects",
+                   isOn: $enabled)
+                .onChange(of: enabled) { _, _ in
+                    BluetoothAudioRecoveryService.shared.syncWithPreferences()
+                }
+            Text(chinese
+                 ? "當藍牙喇叭成為預設音訊輸出時執行一次。重啟會短暫中斷所有藍牙裝置；重新連線不會重複觸發。"
+                 : "Runs once when a Bluetooth speaker becomes the default audio output. All Bluetooth devices briefly disconnect; reconnecting does not trigger another restart.")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+            if !configured {
+                Button(chinese ? "授權自動重啟" : "Authorize automatic restart") {
+                    busy = true
+                    BluetoothAudioRecoveryService.install { ok in
+                        DispatchQueue.main.async {
+                            configured = ok
+                            busy = false
+                        }
+                    }
+                }
+                .disabled(busy)
+                Text(chinese
+                     ? "需要管理員密碼進行一次性授權，且只允許執行 /usr/bin/pkill -x bluetoothd。"
+                     : "One administrator authorization allows only /usr/bin/pkill -x bluetoothd.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } else {
+                Button(chinese ? "移除重啟授權" : "Remove restart authorization") {
+                    busy = true
+                    BluetoothAudioRecoveryService.remove { ok in
+                        DispatchQueue.main.async {
+                            if ok {
+                                configured = false
+                                enabled = false
+                                BluetoothAudioRecoveryService.shared.syncWithPreferences()
+                            }
+                            busy = false
+                        }
+                    }
+                }
+                .disabled(busy)
+            }
+        }
+        .onAppear {
+            DispatchQueue.global(qos: .utility).async {
+                let ready = BluetoothAudioRecoveryService.isConfigured
+                DispatchQueue.main.async { configured = ready }
+            }
         }
     }
 }

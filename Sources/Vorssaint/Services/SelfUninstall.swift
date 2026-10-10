@@ -237,8 +237,15 @@ enum SelfUninstall {
     }
 
     private static func removeSudoersRuleIfPresent(then: @escaping (Bool) -> Void) {
-        guard Sudoers.ruleFilesPresent || Sudoers.isConfigured() else { then(true); return }
-        Sudoers.remove(completion: then)            // shows the admin password prompt
+        let removeBluetoothRule: (Bool) -> Void = { firstRemoved in
+            guard firstRemoved else { then(false); return }
+            BluetoothAudioRecoveryService.remove(completion: then)
+        }
+        guard Sudoers.ruleFilesPresent || Sudoers.isConfigured() else {
+            removeBluetoothRule(true)
+            return
+        }
+        Sudoers.remove(completion: removeBluetoothRule)
     }
 
     /// `tccutil reset All <bundle id>` clears Accessibility, Screen Recording,
