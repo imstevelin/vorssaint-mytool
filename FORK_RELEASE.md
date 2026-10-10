@@ -2,6 +2,12 @@
 
 This is an unofficial fork of [Vorssaint](https://github.com/vorssaint/vorssaint-utils), maintained at [imstevelin/vorssaint-mytool](https://github.com/imstevelin/vorssaint-mytool). It is not an official Vorssaint build or endorsed by the upstream maintainer. The source remains GPL-3.0-or-later; see `LICENSE` and `TRADEMARKS.md`.
 
+## 1.0.1
+
+- On first launch, import compatible explicit preferences from the official Vorssaint app on the same Mac. The official preferences stay unchanged. If this fork has already completed setup, its own choices take priority.
+- Reinstalling the app bundle keeps the fork’s preferences and private files. A deliberate full uninstall still removes them. macOS permissions belong to the fork’s bundle ID and may need to be granted once.
+- Existing official settings backup files can be imported in Advanced Settings; older backups preserve the fork’s display memory switches.
+
 ## 1.0.0
 
 - Two independent Window Layout switches: remember each app window’s size per display, and restore still-open windows to their saved size and position when a display reconnects.

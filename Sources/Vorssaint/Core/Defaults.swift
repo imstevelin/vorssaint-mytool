@@ -7,6 +7,8 @@ import Foundation
 
 /// Every UserDefaults key used by the app, in one place.
 enum DefaultsKey {
+    // The fork imports the official app's preferences once, without touching its domain.
+    static let importedOfficialSettingsVersion = "imstevelinImportedOfficialSettingsVersion"
     static let language = "appLanguage"                   // AppLanguage.rawValue
     static let appearance = "appAppearance"               // AppAppearance.rawValue
     static let liquidGlassEnabled = "liquidGlassEnabled"  // Liquid Glass in windows and panels on macOS 26+

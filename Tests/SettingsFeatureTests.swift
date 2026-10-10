@@ -27,6 +27,75 @@ enum SettingsFeatureTests {
         // MARK: Settings backup
 
         let backupKeys = SettingsBackupSupport.exportKeys()
+        // The fork imports only explicit, compatible choices from the official
+        // domain; it keeps its own domain for later reinstallations.
+        let officialSettings: [String: Any] = [
+            DefaultsKey.hasOnboarded: true,
+            DefaultsKey.language: "zh-TW",
+            DefaultsKey.windowLayoutShortcutsEnabled: true,
+            DefaultsKey.windowRememberSizes: true,
+            DefaultsKey.startupDidNotFinish: true,
+            DefaultsKey.windowDisplayMemory: Data([1, 2, 3]),
+            "unknownOfficialKey": "ignored",
+        ]
+        let partialFork: [String: Any] = [DefaultsKey.language: "en-US"]
+        let mergedFirstRun = ForkSettingsMigration.mergedDomain(
+            source: officialSettings, destination: partialFork)
+        suite.expect(mergedFirstRun?[DefaultsKey.hasOnboarded] as? Bool == true
+                && mergedFirstRun?[DefaultsKey.language] as? String == "zh-TW"
+                && mergedFirstRun?[DefaultsKey.windowLayoutShortcutsEnabled] as? Bool == true
+                && mergedFirstRun?[DefaultsKey.windowRememberSizes] as? Bool == true
+                && mergedFirstRun?[DefaultsKey.importedOfficialSettingsVersion] as? Int == 1,
+               "first launch applies the official setup and remembers the migration")
+        suite.expect(mergedFirstRun?[DefaultsKey.startupDidNotFinish] == nil
+                && mergedFirstRun?[DefaultsKey.windowDisplayMemory] == nil
+                && mergedFirstRun?["unknownOfficialKey"] == nil,
+               "migration excludes transient, machine-only and unknown values")
+        suite.expect(ForkSettingsMigration.mergedDomain(
+            source: officialSettings, destination: mergedFirstRun ?? [:]) == nil,
+               "a reinstall never imports the official domain a second time")
+        let configuredFork: [String: Any] = [
+            DefaultsKey.hasOnboarded: true,
+            DefaultsKey.language: "en-US",
+        ]
+        let mergedConfigured = ForkSettingsMigration.mergedDomain(
+            source: officialSettings, destination: configuredFork)
+        suite.expect(mergedConfigured?[DefaultsKey.language] as? String == "en-US"
+                && mergedConfigured?[DefaultsKey.windowLayoutShortcutsEnabled] as? Bool == true,
+               "an existing fork setup keeps its choices and receives only missing settings")
+        let oldBackupKeysToClear = SettingsBackupSupport.keysToClear(whenImporting: [
+            DefaultsKey.windowLayoutShortcutsEnabled: true,
+        ])
+        suite.expect(!oldBackupKeysToClear.contains(DefaultsKey.windowRememberSizes)
+                && !oldBackupKeysToClear.contains(DefaultsKey.windowRestoreDisplayLayout),
+               "importing an official backup keeps the fork's display memory switches")
+        suite.expect(ForkSettingsMigration.mergedDomain(
+            source: [DefaultsKey.startupDidNotFinish: true], destination: [:]) == nil,
+               "migration waits for at least one compatible official preference")
+
+        let sourceDomain = "com.vorssaint.tests.fork-migration-source"
+        let targetDomain = "com.vorssaint.tests.fork-migration-target"
+        if let sourceDefaults = UserDefaults(suiteName: sourceDomain),
+           let targetDefaults = UserDefaults(suiteName: targetDomain) {
+            defer {
+                sourceDefaults.removePersistentDomain(forName: sourceDomain)
+                targetDefaults.removePersistentDomain(forName: targetDomain)
+            }
+            sourceDefaults.setPersistentDomain(officialSettings, forName: sourceDomain)
+            targetDefaults.setPersistentDomain(partialFork, forName: targetDomain)
+            suite.expect(ForkSettingsMigration.migrate(from: sourceDomain, to: targetDomain,
+                                                       target: targetDefaults)
+                    && targetDefaults.persistentDomain(forName: targetDomain)?[DefaultsKey.language]
+                        as? String == "zh-TW"
+                    && sourceDefaults.persistentDomain(forName: sourceDomain)?[DefaultsKey.language]
+                        as? String == "zh-TW",
+                   "the installed app copies into its own domain without changing the official domain")
+            suite.expect(!ForkSettingsMigration.migrate(from: sourceDomain, to: targetDomain,
+                                                        target: targetDefaults),
+                   "the stored marker prevents a second domain write")
+        } else {
+            suite.expect(false, "test defaults suites can be opened")
+        }
         let marginBackup = SettingsBackupSupport.payload(appVersion: "test") { key in
             key == DefaultsKey.windowLayoutMarginPercent ? 12.0 : nil
         }

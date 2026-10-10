@@ -30,9 +30,17 @@ enum SettingsBackupSupport {
     }
 
     static func keysToClear(whenImporting settings: [String: Any]) -> Set<String> {
-        let keys = exportKeys()
-        guard omitsDynamicIslandSettings(settings) else { return keys }
-        return keys.subtracting(dynamicIslandKeys(in: keys))
+        var keys = exportKeys()
+        if omitsDynamicIslandSettings(settings) {
+            keys.subtract(dynamicIslandKeys(in: keys))
+        }
+        // An official backup predates this fork's display memory switches.
+        // Importing it must not turn off choices made in the fork afterward.
+        for key in [DefaultsKey.windowRememberSizes, DefaultsKey.windowRestoreDisplayLayout]
+            where settings[key] == nil {
+            keys.remove(key)
+        }
+        return keys
     }
 
     private static func dynamicIslandKeys(in keys: Set<String>) -> Set<String> {
