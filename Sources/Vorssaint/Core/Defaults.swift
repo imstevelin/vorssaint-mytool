@@ -729,6 +729,11 @@ enum DefaultsKey {
 
     // Window Layout — snapping, global shortcuts and optional pointer gestures.
     static let windowLayoutShortcutsEnabled = "windowLayoutShortcutsEnabled"
+    static let windowRememberSizes = "windowRememberSizes"
+    static let windowRestoreDisplayLayout = "windowRestoreDisplayLayout"
+    // Machine-specific display geometry and window identity; never included in settings backup.
+    static let windowDisplayMemory = "windowDisplayMemoryV1"
+    static let windowDisplayMemorySalt = "windowDisplayMemorySaltV1"
     static let windowDirectionalEnabled = "windowDirectionalEnabled"
     static let windowDirectionalShortcut = "windowDirectionalShortcut"
     static let pointerDisplayEnabled = "pointerDisplayEnabled"
@@ -1880,6 +1885,8 @@ enum Defaults {
         DefaultsKey.screenshotSharingEnabled: true,
         DefaultsKey.panelUtilityScreenshot: true,
         DefaultsKey.windowLayoutShortcutsEnabled: false,
+        DefaultsKey.windowRememberSizes: false,
+        DefaultsKey.windowRestoreDisplayLayout: false,
         DefaultsKey.windowDirectionalEnabled: false,
         DefaultsKey.windowDirectionalShortcut: GlobalShortcut.windowDirectionalDefault.storageValue,
         DefaultsKey.pointerDisplayEnabled: false,

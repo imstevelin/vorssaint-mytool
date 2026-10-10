@@ -14,6 +14,8 @@ struct WindowLayoutSettings: View {
     @AppStorage(DefaultsKey.pointerDisplayEnabled) private var pointerDisplayEnabled = false
     @AppStorage(DefaultsKey.panelUtilityWindowLayout) private var showInPanel = true
     @AppStorage(DefaultsKey.windowLayoutShortcutsEnabled) private var shortcutsEnabled = true
+    @AppStorage(DefaultsKey.windowRememberSizes) private var rememberSizes = false
+    @AppStorage(DefaultsKey.windowRestoreDisplayLayout) private var restoreDisplayLayout = false
     @AppStorage(DefaultsKey.windowDirectionalEnabled) private var directionalEnabled = false
     @AppStorage(DefaultsKey.windowDirectionalShortcut) private var directionalShortcutRaw = GlobalShortcut.windowDirectionalDefault.storageValue
     @AppStorage(DefaultsKey.windowEdgeSnapEnabled) private var edgeSnapEnabled = false
@@ -65,6 +67,7 @@ struct WindowLayoutSettings: View {
             }
 
             if AppFeature.windowLayout.isAvailable {
+                displayMemorySection
                 Section(text.gestureSection) {
                     Toggle(text.edgeSnapEnable, isOn: $edgeSnapEnabled)
                         .onChange(of: edgeSnapEnabled) { _, _ in
@@ -303,6 +306,26 @@ struct WindowLayoutSettings: View {
         default: return "\(value) px"
         }
         return "\(name) (\(value) px)"
+    }
+
+    private var displayMemorySection: some View {
+        let strings = DisplayWindowMemoryStrings.localized(l10n.language)
+        return Section(strings.section) {
+            Toggle(strings.rememberSize, isOn: $rememberSizes)
+                .onChange(of: rememberSizes) { _, _ in
+                    DisplayWindowMemoryService.shared.syncWithPreferences()
+                }
+            Text(strings.rememberSizeCaption)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Toggle(strings.restoreLayout, isOn: $restoreDisplayLayout)
+                .onChange(of: restoreDisplayLayout) { _, _ in
+                    DisplayWindowMemoryService.shared.syncWithPreferences()
+                }
+            Text(strings.restoreLayoutCaption)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
     }
 
     private var marginSlider: some View {
