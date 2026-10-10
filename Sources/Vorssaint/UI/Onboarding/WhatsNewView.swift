@@ -50,7 +50,7 @@ struct UpdatePreviewView: View {
                 Button(l10n.s.uninstallerCancel) { onCancel() }
                     .keyboardShortcut(.cancelAction)
                 Spacer()
-                Button(l10n.s.updateInstallButton) { onUpdate() }
+                Button(l10n.s.viewOnGitHub) { onUpdate() }
                     .keyboardShortcut(.defaultAction)
                     .buttonStyle(.borderedProminent)
             }

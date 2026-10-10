@@ -27,7 +27,7 @@ final class UpdateService: ObservableObject {
     /// preview. Set alongside `.available`; cleared otherwise.
     @Published private(set) var availableNotes: String?
 
-    private let repository = "vorssaint/vorssaint-utils"
+    private let repository = "imstevelin/vorssaint-mytool"
     private var downloadURL: URL?
     /// Size the release advertises for the asset, used to bound the download.
     private var downloadExpectedBytes: Int64?
@@ -207,6 +207,13 @@ final class UpdateService: ObservableObject {
 
     func downloadAndInstall() {
         if AppInfo.isDeveloperBuild { return }  // never replace the local dev build over itself
+        // This fork has no Developer ID release certificate. Open its own release
+        // page for a manual install rather than invoking the official installer's
+        // hard-coded team-ID verifier or replacing this app with an upstream build.
+        if Bundle.main.bundleIdentifier == "com.imstevelin.vorssaint-imstevelin" {
+            NSWorkspace.shared.open(AppInfo.repositoryURL.appendingPathComponent("releases/latest"))
+            return
+        }
         guard let downloadURL else { return }
         // Pre-flight BEFORE spending the download: a translocated app or one
         // running from a read-only volume (the mounted DMG) can never be
