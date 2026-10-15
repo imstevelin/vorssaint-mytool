@@ -20,7 +20,37 @@ struct DisplayWindowMemory: Codable {
     var displays: [String: RememberedDisplay] = [:]
 }
 
+struct DisplayWindowObservation {
+    var display: String
+    var frame: CGRect
+    var stableSince: Date
+    var learned = false
+}
+
 enum DisplayWindowMemorySupport {
+    enum Action { case wait, restore, observe, learn }
+
+    /// A restore belongs only to a new window or a display transition. Once
+    /// consumed, all subsequent geometry changes belong to the app or user.
+    static func action(previous: DisplayWindowObservation?, display: String,
+                       frame: CGRect, now: Date, interacting: Bool) -> Action {
+        if previous == nil || previous?.display != display {
+            return interacting ? .wait : .restore
+        }
+        guard let previous, !interacting, !previous.learned,
+              close(previous.frame, frame),
+              now.timeIntervalSince(previous.stableSince) >= 1.5 else { return .observe }
+        return .learn
+    }
+
+    static func close(_ lhs: CGSize, _ rhs: CGSize) -> Bool {
+        abs(lhs.width - rhs.width) <= 2 && abs(lhs.height - rhs.height) <= 2
+    }
+
+    static func close(_ lhs: CGRect, _ rhs: CGRect) -> Bool {
+        close(lhs.size, rhs.size) && abs(lhs.minX - rhs.minX) <= 2 && abs(lhs.minY - rhs.minY) <= 2
+    }
+
     static func profileKey(bundleID: String, titleDigest: String?) -> String {
         bundleID + ":" + (titleDigest ?? "")
     }

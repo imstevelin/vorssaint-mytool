@@ -2,9 +2,11 @@
 // Copyright (C) 2026 Vorssaint contributors
 
 import CoreGraphics
+import Foundation
 
 enum DisplayWindowMemoryTests {
     static func run(_ suite: TestSuite) {
+        interactionTests(suite)
         suite.expect(Defaults.registeredDefaults[DefaultsKey.windowRememberSizes] as? Bool == false
             && Defaults.registeredDefaults[DefaultsKey.windowRestoreDisplayLayout] as? Bool == false,
             "display memory starts off until explicitly enabled")
@@ -41,5 +43,49 @@ enum DisplayWindowMemoryTests {
             && !DisplayWindowMemorySupport.matches(saved, bundleID: "com.example.other", titleDigest: "abc")
             && !DisplayWindowMemorySupport.matches(saved, bundleID: "com.example.app", titleDigest: "different"),
             "layout restoration never assigns a saved window to the wrong app or known title")
+    }
+
+    private static func interactionTests(_ suite: TestSuite) {
+        let now = Date(timeIntervalSince1970: 100)
+        let original = CGRect(x: 10, y: 50, width: 800, height: 600)
+        let observation = DisplayWindowObservation(display: "builtin", frame: original,
+                                                   stableSince: now)
+        suite.expect(DisplayWindowMemorySupport.action(previous: nil, display: "builtin",
+            frame: original, now: now, interacting: false) == .restore,
+            "a newly opened window gets one immediate restore opportunity")
+        for previous in [nil, observation] {
+            suite.expect(DisplayWindowMemorySupport.action(previous: previous, display: "external",
+                frame: original, now: now, interacting: true) == .wait,
+                "new windows and display transitions wait while the user drags")
+        }
+        suite.expect(DisplayWindowMemorySupport.action(previous: observation, display: "external",
+            frame: original, now: now, interacting: false) == .restore,
+            "a display transition restores after the drag ends")
+        let moved = original.offsetBy(dx: 200, dy: 100)
+        let resized = CGRect(origin: original.origin, size: CGSize(width: 500, height: 400))
+        for frame in [original, moved, resized] {
+            for seconds in [0.5, 3.0, 6.0, 9.0, 60.0] {
+                suite.expect(DisplayWindowMemorySupport.action(previous: observation, display: "builtin",
+                    frame: frame, now: now.addingTimeInterval(seconds), interacting: false) != .restore,
+                    "same-display polling never reapplies a stale frame, including rejected sizes")
+            }
+        }
+        suite.expect(DisplayWindowMemorySupport.action(previous: observation, display: "builtin",
+            frame: original, now: now.addingTimeInterval(1), interacting: false) == .observe,
+            "learning waits for geometry to settle rather than overwriting a profile immediately")
+        suite.expect(DisplayWindowMemorySupport.action(previous: observation, display: "builtin",
+            frame: original, now: now.addingTimeInterval(1.5), interacting: false) == .learn,
+            "stable accepted geometry is learned after 1.5 seconds")
+        suite.expect(DisplayWindowMemorySupport.action(previous: observation, display: "builtin",
+            frame: resized, now: now.addingTimeInterval(3), interacting: false) == .observe,
+            "manual resizing resets the quiet period before the new size is learned")
+        suite.expect(DisplayWindowMemorySupport.action(previous: observation, display: "builtin",
+            frame: original, now: now.addingTimeInterval(3), interacting: true) == .observe,
+            "mouse interaction suppresses profile learning even with stable geometry")
+        var learned = observation
+        learned.learned = true
+        suite.expect(DisplayWindowMemorySupport.action(previous: learned, display: "builtin",
+            frame: original, now: now.addingTimeInterval(60), interacting: false) == .observe,
+            "unchanged windows do not rewrite preferences on every fast scan")
     }
 }

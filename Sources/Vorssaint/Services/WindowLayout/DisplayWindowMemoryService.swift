@@ -20,12 +20,9 @@ final class DisplayWindowMemoryService {
     }
 
     private struct Observation {
-        var display: String
-        var size: CGSize
-        var stableScans: Int
-        var expectedFrame: CGRect?
-        var attempts: Int = 0
-        var skipLearning = false
+        let pid: pid_t
+        let bundleID: String
+        var state: DisplayWindowObservation
         var lastSeen: Date
     }
 
@@ -39,6 +36,8 @@ final class DisplayWindowMemoryService {
     private var scanResumeAt = Date.distantPast
     private var captureResumeAt = Date.distantPast
     private var transitionGeneration = 0
+    private var pendingLayoutDisplays = Set<String>()
+    private var interactionResumeAt = Date.distantPast
 
     private init() {
         if let data = defaults.data(forKey: DefaultsKey.windowDisplayMemory),
@@ -68,7 +67,7 @@ final class DisplayWindowMemoryService {
             forName: NSApplication.didChangeScreenParametersNotification,
             object: nil, queue: .main
         ) { [weak self] _ in self?.displayConfigurationChanged() }
-        timer = Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { [weak self] _ in
+        timer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
             self?.scan()
         }
         scan()
@@ -80,6 +79,7 @@ final class DisplayWindowMemoryService {
         if let displayObserver { NotificationCenter.default.removeObserver(displayObserver) }
         displayObserver = nil
         observations.removeAll()
+        pendingLayoutDisplays.removeAll()
         transitionGeneration += 1
     }
 
@@ -88,95 +88,101 @@ final class DisplayWindowMemoryService {
         guard current != knownDisplays else { return }
         let added = DisplayWindowMemorySupport.newlyConnected(previous: knownDisplays, current: current)
         knownDisplays = current
-        observations.removeAll()
-        captureResumeAt = Date().addingTimeInterval(10)
-        scanResumeAt = Date().addingTimeInterval(3)
+        pendingLayoutDisplays.formUnion(added)
+        pendingLayoutDisplays.formIntersection(current)
+        captureResumeAt = Date().addingTimeInterval(2)
+        scanResumeAt = Date().addingTimeInterval(0.6)
         transitionGeneration += 1
         let generation = transitionGeneration
-        // AppKit and other applications need a moment to settle after display changes.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak self] in
-            guard let self, self.transitionGeneration == generation, self.timer != nil,
-                  AXIsProcessTrusted(), SessionActivity.shared.isActive else { return }
-            if self.defaults.bool(forKey: DefaultsKey.windowRestoreDisplayLayout) {
-                self.restoreLayouts(on: added)
-            }
-            // A removed display needs its remaining windows resized now. A
-            // reconnected display gets a short grace period after placement.
-            self.scanResumeAt = added.isEmpty ? .distantPast : Date().addingTimeInterval(3)
-            if added.isEmpty { self.scan() }
+        // Coalesce topology notifications, then let the ordinary scan wait for
+        // mouse interaction to finish before moving any windows.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in
+            guard let self, self.transitionGeneration == generation, self.timer != nil else { return }
+            self.scan()
         }
     }
 
     private func scan() {
         guard AXIsProcessTrusted(), SessionActivity.shared.isActive,
               Date() >= scanResumeAt else { return }
-        let windows = visibleWindows()
-        guard !windows.isEmpty else { return }
         let now = Date()
+        if NSEvent.pressedMouseButtons != 0 {
+            interactionResumeAt = now.addingTimeInterval(0.25)
+        }
+        let interacting = now < interactionResumeAt
+        if !interacting, !pendingLayoutDisplays.isEmpty {
+            let displays = pendingLayoutDisplays
+            pendingLayoutDisplays.removeAll()
+            if defaults.bool(forKey: DefaultsKey.windowRestoreDisplayLayout) {
+                restoreLayouts(on: displays)
+                captureResumeAt = now.addingTimeInterval(2)
+                return // Never capture the pre-placement WindowServer snapshot.
+            }
+        }
+        let windows = visibleWindows()
         let rememberSizes = defaults.bool(forKey: DefaultsKey.windowRememberSizes)
+        var appliedFrame = false
         if rememberSizes {
             for window in windows {
                 guard let display = displayKey(window.screen) else { continue }
-                let previous = observations[window.id]
-                let size = window.frame.size
-                if previous == nil || previous?.display != display {
+                var previous = observations[window.id]
+                if previous?.pid != window.pid || previous?.bundleID != window.bundleID {
+                    previous = nil // WindowServer can recycle a closed window's ID.
+                }
+                let decision = DisplayWindowMemorySupport.action(
+                    previous: previous?.state, display: display, frame: window.frame,
+                    now: now, interacting: interacting)
+                if decision == .wait { continue }
+                if decision == .restore {
                     let profile = memory.displays[display]
                     let exact = profile?.sizes[DisplayWindowMemorySupport.profileKey(
                         bundleID: window.bundleID, titleDigest: window.titleDigest)]
                     let fallback = profile?.sizes[DisplayWindowMemorySupport.profileKey(
                         bundleID: window.bundleID, titleDigest: nil)]
-                    var desired: CGRect?
-                    if let target = exact ?? fallback,
-                       abs(target.width - size.width) > 12 || abs(target.height - size.height) > 12 {
-                        desired = DisplayWindowMemorySupport.fittedFrame(
+                    if let target = exact ?? fallback {
+                        let desired = DisplayWindowMemorySupport.fittedFrame(
                             CGRect(origin: window.frame.origin, size: target),
                             within: usableBounds(window.screen))
-                        if let desired { _ = setFrame(desired, for: window) }
+                        if !DisplayWindowMemorySupport.close(window.frame.size, desired.size) {
+                            appliedFrame = setFrame(desired, for: window) || appliedFrame
+                        }
                     }
-                    observations[window.id] = Observation(display: display, size: size,
-                                                          stableScans: 0, expectedFrame: desired,
-                                                          lastSeen: now)
+                    // Consume the transition even if the app rejects the request.
+                    // Retrying a stale frame fights manual moves and app size limits.
+                    observations[window.id] = Observation(
+                        pid: window.pid, bundleID: window.bundleID,
+                        state: DisplayWindowObservation(display: display, frame: window.frame,
+                                                        stableSince: now), lastSeen: now)
                     continue
                 }
                 var observation = previous!
                 observation.lastSeen = now
-                if let expected = observation.expectedFrame {
-                    if close(window.frame, expected) {
-                        observation.expectedFrame = nil
-                        observation.size = window.frame.size
-                        observation.stableScans = 0
-                    } else if observation.attempts < 2 {
-                        _ = setFrame(expected, for: window)
-                        observation.attempts += 1
-                    } else {
-                        observation.expectedFrame = nil
-                        observation.skipLearning = true
-                    }
-                } else if close(size, observation.size) {
-                    observation.stableScans += 1
-                    if observation.stableScans == 2 && !observation.skipLearning {
-                        var stored = memory.displays[display] ?? RememberedDisplay()
-                        stored.sizes[DisplayWindowMemorySupport.profileKey(
-                            bundleID: window.bundleID, titleDigest: window.titleDigest)] = size
-                        // Titles can be unavailable without Screen Recording; keep a usable app fallback.
-                        stored.sizes[DisplayWindowMemorySupport.profileKey(
-                            bundleID: window.bundleID, titleDigest: nil)] = size
-                        memory.displays[display] = stored
-                        persist()
-                    }
-                } else {
-                    observation.size = size
-                    observation.stableScans = 0
-                    observation.skipLearning = false
+                if !DisplayWindowMemorySupport.close(window.frame, observation.state.frame) || interacting {
+                    observation.state.frame = window.frame
+                    observation.state.stableSince = now
+                    observation.state.learned = false
+                } else if decision == .learn {
+                    var stored = memory.displays[display] ?? RememberedDisplay()
+                    stored.sizes[DisplayWindowMemorySupport.profileKey(
+                        bundleID: window.bundleID, titleDigest: window.titleDigest)] = window.frame.size
+                    stored.sizes[DisplayWindowMemorySupport.profileKey(
+                        bundleID: window.bundleID, titleDigest: nil)] = window.frame.size
+                    memory.displays[display] = stored
+                    observation.state.learned = true
+                    persist()
                 }
                 observations[window.id] = observation
             }
+            // Hidden/minimized windows and other Spaces are not new windows.
+            // Keep their consumed transition so revealing them cannot reapply
+            // an app fallback size over a manual adjustment.
             observations = observations.filter {
                 now.timeIntervalSince($0.value.lastSeen) < 3600
             }
         } else {
             observations.removeAll()
         }
+        guard !interacting, !appliedFrame else { return }
 
         if defaults.bool(forKey: DefaultsKey.windowRestoreDisplayLayout), now >= captureResumeAt {
             var captured: [String: [RememberedWindow]] = [:]
@@ -223,7 +229,10 @@ final class DisplayWindowMemoryService {
                 }) else { continue }
                 if setFrame(target, for: window) {
                     available.removeAll { $0.id == window.id }
-                    observations.removeValue(forKey: window.id)
+                    observations[window.id] = Observation(
+                        pid: window.pid, bundleID: window.bundleID,
+                        state: DisplayWindowObservation(display: key, frame: target,
+                                                        stableSince: Date()), lastSeen: Date())
                 }
             }
         }
@@ -284,20 +293,17 @@ final class DisplayWindowMemoryService {
 
     private func setFrame(_ target: CGRect, for item: VisibleWindow) -> Bool {
         let app = AXUIElementCreateApplication(item.pid)
-        AXUIElementSetMessagingTimeout(app, 0.3)
+        AXUIElementSetMessagingTimeout(app, 0.1)
         var raw: CFTypeRef?
         guard AXUIElementCopyAttributeValue(app, kAXWindowsAttribute as CFString, &raw) == .success,
               let windows = raw as? [AXUIElement] else { return false }
-        let closest = windows.compactMap { window -> (AXUIElement, CGFloat)? in
-            AXUIElementSetMessagingTimeout(window, 0.3)
-            var value: CFTypeRef?
-            guard AXUIElementCopyAttributeValue(window, kAXPositionAttribute as CFString, &value) == .success,
-                  let value, CFGetTypeID(value) == AXValueGetTypeID() else { return nil }
-            var position = CGPoint.zero
-            guard AXValueGetValue(value as! AXValue, .cgPoint, &position) else { return nil }
-            return (window, abs(position.x - item.frame.minX) + abs(position.y - item.frame.minY))
-        }.min { $0.1 < $1.1 }?.0
-        guard let window = closest else { return false }
+        // Position alone is ambiguous for overlapping windows of the same app.
+        guard let window = windows.first(where: {
+            AXWindowResolver.windowID(for: $0) == item.id
+        }) else { return false }
+        AXUIElementSetMessagingTimeout(window, 0.1)
+        // Recheck input immediately before writing AX attributes.
+        guard NSEvent.pressedMouseButtons == 0 else { return false }
         var fullScreen: CFTypeRef?
         if AXUIElementCopyAttributeValue(window, "AXFullScreen" as CFString, &fullScreen) == .success,
            (fullScreen as? Bool) == true { return false }
@@ -305,18 +311,25 @@ final class DisplayWindowMemoryService {
         var size = target.size
         guard let positionValue = AXValueCreate(.cgPoint, &position),
               let sizeValue = AXValueCreate(.cgSize, &size) else { return false }
-        let first = AXUIElementSetAttributeValue(window, kAXPositionAttribute as CFString, positionValue)
+        let suspension = EnhancedUserInterfaceSuspension.suspend(forAppOf: window)
+        defer { suspension?.resume() }
+        guard NSEvent.pressedMouseButtons == 0 else { return false }
+        // A size-only restore normally needs no position writes. Moving to a
+        // different display first allows sizes larger than the source display.
+        if abs(target.minX - item.frame.minX) > 2 || abs(target.minY - item.frame.minY) > 2 {
+            _ = AXUIElementSetAttributeValue(window, kAXPositionAttribute as CFString, positionValue)
+        }
         let resized = AXUIElementSetAttributeValue(window, kAXSizeAttribute as CFString, sizeValue)
-        let last = AXUIElementSetAttributeValue(window, kAXPositionAttribute as CFString, positionValue)
-        return resized == .success && (first == .success || last == .success)
-    }
-
-    private func close(_ lhs: CGSize, _ rhs: CGSize) -> Bool {
-        abs(lhs.width - rhs.width) <= 12 && abs(lhs.height - rhs.height) <= 12
-    }
-
-    private func close(_ lhs: CGRect, _ rhs: CGRect) -> Bool {
-        close(lhs.size, rhs.size) && abs(lhs.minX - rhs.minX) <= 12 && abs(lhs.minY - rhs.minY) <= 12
+        var rawPosition: CFTypeRef?
+        var actualPosition = CGPoint.zero
+        if AXUIElementCopyAttributeValue(window, kAXPositionAttribute as CFString, &rawPosition) == .success,
+           let rawPosition, CFGetTypeID(rawPosition) == AXValueGetTypeID(),
+           AXValueGetValue(rawPosition as! AXValue, .cgPoint, &actualPosition),
+           abs(actualPosition.x - target.minX) > 2 || abs(actualPosition.y - target.minY) > 2,
+           NSEvent.pressedMouseButtons == 0 {
+            _ = AXUIElementSetAttributeValue(window, kAXPositionAttribute as CFString, positionValue)
+        }
+        return resized == .success
     }
 
     private func distance(_ lhs: CGRect, _ rhs: CGRect) -> CGFloat {

@@ -221,7 +221,12 @@ struct MetricsTests {
         // notch-music is a focused subset already executed by notch. Running it
         // twice in an unfiltered pass also repeats stateful adapter fixtures.
         for (name, body) in groups where (selected.isEmpty && name != "notch-music") || selected.contains(name) {
+            // NSRegistrationDomain is shared across UserDefaults suites in the
+            // process. A fixture registering app defaults must not change what
+            // later migration fixtures consider an unset preference.
+            let registration = UserDefaults.standard.volatileDomain(forName: UserDefaults.registrationDomain)
             suite.run(name, body)
+            UserDefaults.standard.setVolatileDomain(registration, forName: UserDefaults.registrationDomain)
         }
         suite.finish()
     }

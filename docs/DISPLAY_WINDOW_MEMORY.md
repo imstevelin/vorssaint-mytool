@@ -9,6 +9,18 @@ The Window layout settings contain two independent options, both off by default:
   reconnects, move and resize matching windows that are still open. Closed
   applications, documents and browser tabs are not reopened.
 
+Size memory scans every 0.5 seconds. A new window or display transition receives
+one restore attempt, after mouse interaction has ended. Subsequent manual moves
+and resizes are observed, never retried against an old target. Accepted geometry
+is learned after 1.5 seconds of stability. Applications that reject a size are
+not repeatedly forced back to it. Overlapping windows are resolved by their
+WindowServer ID, not their position.
+
+Display reconnect notifications are coalesced for 0.6 seconds. Reconnection
+placement also waits for mouse interaction to finish, and a restored layout
+consumes the size transition so the two options do not apply competing frames.
+These are scheduling intervals, not guarantees of application response time.
+
 Both options require Accessibility permission and stop their observer and timer
 when turned off or when the Window layout feature is removed. Display geometry,
 size profiles and title digests are kept in this Mac's preferences and excluded

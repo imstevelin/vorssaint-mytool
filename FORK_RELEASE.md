@@ -2,6 +2,13 @@
 
 This is an unofficial fork of [Vorssaint](https://github.com/vorssaint/vorssaint-utils), maintained at [imstevelin/vorssaint-mytool](https://github.com/imstevelin/vorssaint-mytool). It is not an official Vorssaint build or endorsed by the upstream maintainer. The source remains GPL-3.0-or-later; see `LICENSE` and `TRADEMARKS.md`.
 
+## 1.0.3
+
+- Merge upstream `vorssaint-utils/main` through `794608a5` (44 commits), including recorder, clipboard, switcher, Dynamic Island, command bar, and settings fixes. Keep the fork's display memory, Bluetooth recovery, preference migration, branding, and update channel.
+- Fix display size memory fighting manual window movement and resizing: apply a saved frame once per new window or display transition, wait for mouse interaction to finish, and learn the accepted size after it settles. Never retry an old frame when an app enforces size limits.
+- Match Accessibility windows by WindowServer ID instead of position, avoiding changes to another overlapping window. Avoid redundant position writes on size-only changes.
+- Reduce size detection polling from 3 seconds to 0.5 seconds and display-change debounce from 3 seconds to 0.6 seconds. Actual application response time varies.
+
 ## 1.0.2
 
 - Optional Bluetooth speaker recovery in Sound Output Switcher settings. After one administrator authorization, a new Bluetooth default output can restart `bluetoothd` with a narrowly scoped command.
