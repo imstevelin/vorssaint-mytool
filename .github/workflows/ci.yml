@@ -1,9 +1,10 @@
-name: CI
+name: Fork CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, 'codex/sync-upstream-*']
   pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -20,7 +21,7 @@ jobs:
     env:
       DEVELOPER_DIR: /Applications/Xcode_16.2.app/Contents/Developer
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
 
@@ -33,7 +34,7 @@ jobs:
         run: ./build.sh
 
       - name: Selftest
-        run: ./build/Vorssaint --selftest
+        run: ./build/VorssaintImstevelin --selftest
 
       - name: Unit tests
         run: ./build.sh --test
@@ -43,7 +44,7 @@ jobs:
     runs-on: macos-26
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
 
@@ -51,10 +52,26 @@ jobs:
         run: ./build.sh
 
       - name: Selftest
-        run: ./build/Vorssaint --selftest
+        run: ./build/VorssaintImstevelin --selftest
+
+      - name: Verify bundle and display helpers
+        run: |
+          APP='build/stage/實用小工具.app'
+          codesign --verify --deep --strict "$APP"
+          plutil -lint "$APP/Contents/Info.plist"
+          test -x "$APP/Contents/Helpers/DisplayRecoveryHelper"
+          test -x "$APP/Contents/Helpers/VirtualDisplayHost"
 
       - name: Package DMG
         run: ./Tools/make-dmg.sh
 
       - name: Unit tests
         run: ./build.sh --test
+
+      - name: Upload candidate DMG
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: fork-candidate-${{ github.sha }}
+          path: dist/*.dmg
+          if-no-files-found: error
+          retention-days: 14
