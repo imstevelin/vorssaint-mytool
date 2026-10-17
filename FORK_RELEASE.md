@@ -70,8 +70,8 @@ This is an unofficial fork of [Vorssaint](https://github.com/vorssaint/vorssaint
 
 ## Build and update
 
-Run `./build.sh` and `./Tools/make-dmg.sh` on macOS with Xcode or Command Line Tools. The bundle is `vorssaint-imstevelin.app` with bundle identifier `com.imstevelin.vorssaint-imstevelin` and a fork-specific icon. The release build uses the local Apple Development signing identity when present. This identity is not a Developer ID distribution certificate, and the DMG is not notarized. A Mac may require a manual Open action in System Settings after download.
+Run `./build.sh` and `./Tools/make-dmg.sh` on macOS with Xcode or Command Line Tools. The bundle is `build/stage/實用小工具.app` with bundle identifier `com.imstevelin.vorssaint-imstevelin` and a fork-specific icon. The release build uses the local Apple Development signing identity when present. This identity is not a Developer ID distribution certificate, and the DMG is not notarized. A Mac may require a manual Open action in System Settings after download.
 
 The app checks only this fork's GitHub Releases. Its update button opens the fork's release page for manual installation. It never runs the upstream automatic installer, whose signature check is tied to the upstream team and bundle ID.
 
-For upstream integration and the proposed independent release cadence, see [docs/UPSTREAM_MAINTENANCE.md](docs/UPSTREAM_MAINTENANCE.md). The proposed flow consolidates development on the fork's `main`, uses short-lived integration branches with normal merges, and validates fork behavior before tagging a release. The current working branch has not yet been consolidated into `main`.
+For upstream integration and the independent release cadence, see [docs/UPSTREAM_MAINTENANCE.md](docs/UPSTREAM_MAINTENANCE.md) and [the first integration record](docs/upstream-sync/2026-10-18.md). Development is consolidated on the fork's `main`, uses short-lived integration branches with normal merges, and validates fork behavior before tagging a release. Source integration does not publish a new release.

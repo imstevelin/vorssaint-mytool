@@ -49,7 +49,7 @@
 | 緊急修正 | 安全、資料損失、崩潰、無法錄影等，24–72 小時內評估 | 必要時挑選修正及依賴，測試後發 patch |
 | Fork 發版 | 每 2–4 週或有值得推出的客製功能 | 固定候選版、驗收、封裝、標記與 release notes |
 
-以上為維護目標，不是已設定的自動化，也不是對官方支援的保證。遇到行為衝突可延後該功能的對外發佈，但應記錄阻擋原因與下一次處理日期，避免無限期擱置。
+以上為維護目標。第一輪已加入每週兩次的 GitHub Actions 檢查流程；同步及發版仍需依驗證結果執行，不會自動合併或安裝。遇到行為衝突可延後該功能的對外發佈，但應記錄阻擋原因與下一次處理日期，避免無限期擱置。
 
 ## 分支與歷史
 
@@ -101,7 +101,20 @@ git merge --no-ff <reviewed-upstream-sha>
 
 Fork 繼續使用自己的 `1.x` 版本與 bundle ID，release notes 另列「上游基準 SHA／相容的官方版本」。更新只指向 fork 的 GitHub Releases，保留現在的手動安裝通道；不能把來源改成官方二進位檔，否則會失去客製內容與身分延續。
 
-現有 `.github/workflows/ci.yml` 的 push 只涵蓋 main，且 selftest 使用 `./build/Vorssaint`。目前封裝名稱已客製，導入 fork CI 前應核對實際產物路徑及自訂 helper、SDK 相容性，納入 sync 分支或 PR。現有 `release.yml` 限制官方 repo／actor，不能視為 fork 已有自動發版；應另建 fork 發版流程。先實現 build／tests／artifact，Developer ID、公證與自動安裝列為後續獨立工作。
+第一輪已修正 `.github/workflows/ci.yml` 的 fork 執行檔路徑，涵蓋 main／sync 分支及 PR，驗證自訂 helper 並上傳候選 DMG。現有 `release.yml` 限制官方 repo／actor，不能視為 fork 已有自動發版；應另建 fork 發版流程。Developer ID、公證與自動安裝列為後續獨立工作。
+
+## 操作入口
+
+首次 clone fork 後，設定來源：
+
+```sh
+git remote add upstream https://github.com/vorssaint/vorssaint-utils.git
+python3 Tools/check-upstream.py
+```
+
+已存在 upstream 時不要重複新增。工具預設 fetch upstream、查詢官方最新正式版，輸出 Markdown；`--format json` 供其他工具讀取。離線檢查使用 `--no-fetch --no-release-check`，代表未查詢最新網路狀態。評估既有提交，不包含尚未提交的修改；不 checkout、merge 或 push。
+
+GitHub → Actions → Upstream assessment 可手動執行並查看 summary／artifact。排程為每週一及四台北 09:00，由 GitHub 代跑，可能延遲；不需要本機保持開機。正常與有差異的結果均保留報告，不另行自動留言或開 issue。
 
 ## 下一輪的具體順序
 

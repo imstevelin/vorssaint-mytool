@@ -133,7 +133,7 @@ enum SelfTest {
             failures.append("unknown menu bar symbol does not fall back to the glyph")
         }
 
-        // Tools/MakeIcon.swift writes the glyph PNGs at BlackHoleGlyph.pointSize.
+        // Tools/MakeForkIcon.swift writes the glyph PNGs at BlackHoleGlyph.pointSize.
         // Changing the canvas in one and not the other would squash the glyph.
         // Asked for with no symbol name, since the glyph in use may be a
         // symbol chosen in the menu bar settings.
