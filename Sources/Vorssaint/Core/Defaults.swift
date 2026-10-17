@@ -7,6 +7,8 @@ import Foundation
 
 /// Every UserDefaults key used by the app, in one place.
 enum DefaultsKey {
+    // The fork imports the official app's preferences once, without touching its domain.
+    static let importedOfficialSettingsVersion = "imstevelinImportedOfficialSettingsVersion"
     static let language = "appLanguage"                   // AppLanguage.rawValue
     static let appearance = "appAppearance"               // AppAppearance.rawValue
     static let liquidGlassEnabled = "liquidGlassEnabled"  // Liquid Glass in windows and panels on macOS 26+
@@ -119,6 +121,7 @@ enum DefaultsKey {
     static let switcherInstantSelection = "switcherInstantSelection" // skip selection and reveal animations while browsing
     static let switcherScreenPlacement = "switcherScreenPlacement" // SwitcherScreenPlacement raw value: which display the panel opens on
     static let switcherCurrentDisplayOnly = "switcherCurrentDisplayOnly" // list only windows on the display under the pointer (issue #1391)
+    static let switcherMaxColumns = "switcherMaxColumns" // 0 = Auto, else the most items per row (SwitcherSupport.maxColumnsRange)
     static let minimalWindowPreviews = "minimalWindowPreviews"
     static let dockPreviewEnabled = "dockPreviewEnabled"
     static let dockPreviewKeepDockVisible = "dockPreviewKeepDockVisible"
@@ -142,6 +145,7 @@ enum DefaultsKey {
     static let includeBetaUpdates = "includeBetaUpdates"
     static let releaseNotesOnUpdate = "releaseNotesOnUpdate" // show What's New after an update
     static let appVolumes = "appVolumes"                  // [bundle id: 0...2]
+    static let appVolumesArePositions = "appVolumesArePositions" // appVolumes hold slider positions, not gains; travels with them so an older backup converts on restore
     static let appOutputDevices = "appOutputDevices"      // [bundle id: audio device UID]
     static let mixerUniversalOutputDevice = "mixerUniversalOutputDevice" // retired: all-apps output saved by 3.4.1 betas
     static let mixerShowFinder = "mixerShowFinder"
@@ -150,6 +154,7 @@ enum DefaultsKey {
     static let mixerHiddenApps = "mixerHiddenApps"        // [persistence id: display name] kept out of the mixer list (issue #300)
     static let mixerLowerVolumeOnHeadphonesDisconnect = "mixerLowerVolumeOnHeadphonesDisconnect"
     static let mixerHeadphonesDisconnectVolumePercent = "mixerHeadphonesDisconnectVolumePercent"
+    static let volumeFeedbackSoundEnabled = "volumeFeedbackSoundEnabled"
     static let preciseVolumeRollerEnabled = "preciseVolumeRollerEnabled"
     static let soundOutputSwitcherEnabled = "soundOutputSwitcherEnabled"
     static let soundOutputSwitcherShortcut = "soundOutputSwitcherShortcut"
@@ -240,6 +245,12 @@ enum DefaultsKey {
     // the next start, it means the previous one died on the way up.
     static let startupDidNotFinish = "startupDidNotFinish"
     static let bluetoothSleepEnabled = "bluetoothSleepEnabled"
+    static let bluetoothAudioRecoveryEnabled = "bluetoothAudioRecoveryEnabled"
+    // Selected Core Audio UIDs and display names; an empty list never restarts Bluetooth.
+    static let bluetoothAudioRecoveryDevices = "bluetoothAudioRecoveryDevices"
+    // Local loop guard. Never move this to another Mac in a settings backup.
+    static let bluetoothAudioRecoveryLastAttempt = "bluetoothAudioRecoveryLastAttempt"
+    static let bluetoothAudioRecoveryAwaitingReconnectUID = "bluetoothAudioRecoveryAwaitingReconnectUID"
     static let bluetoothSleepRestoreOnWake = "bluetoothSleepRestoreOnWake"
     // Set only while Vorssaint owes a Bluetooth restore, so a Mac shut down
     // while asleep still gets it back on the next launch.
@@ -546,7 +557,8 @@ enum DefaultsKey {
     static let clipboardHistoryEnabled = "clipboardHistoryEnabled"
     static let clipboardHistoryEntries = "clipboardHistoryEntries"
     static let clipboardHistoryLimit = "clipboardHistoryLimit"
-    static let clipboardHistorySkipSensitive = "clipboardHistorySkipSensitive"
+    // A separate opt-in from the old, enabled-by-default text heuristic.
+    static let clipboardHistoryFilterSensitiveText = "clipboardHistoryFilterSensitiveText"
     static let clipboardHistoryIncludeImagesFiles = "clipboardHistoryIncludeImagesFiles" // capture copied images and files too
     static let clipboardHistoryIgnoredApps = "clipboardHistoryIgnoredApps" // apps whose copies are never saved
     static let clipboardHistoryQuickPreview = "clipboardHistoryQuickPreview"
@@ -729,6 +741,11 @@ enum DefaultsKey {
 
     // Window Layout — snapping, global shortcuts and optional pointer gestures.
     static let windowLayoutShortcutsEnabled = "windowLayoutShortcutsEnabled"
+    static let windowRememberSizes = "windowRememberSizes"
+    static let windowRestoreDisplayLayout = "windowRestoreDisplayLayout"
+    // Machine-specific display geometry and window identity; never included in settings backup.
+    static let windowDisplayMemory = "windowDisplayMemoryV1"
+    static let windowDisplayMemorySalt = "windowDisplayMemorySaltV1"
     static let windowDirectionalEnabled = "windowDirectionalEnabled"
     static let windowDirectionalShortcut = "windowDirectionalShortcut"
     static let pointerDisplayEnabled = "pointerDisplayEnabled"
@@ -902,6 +919,7 @@ enum DefaultsKey {
     static let notchQuickAccessSecond = "notchQuickAccessSecond"
     static let notchQuickAccessThird = "notchQuickAccessThird"
     static let notchVolume = "notchVolume"
+    static let notchInputSource = "notchInputSource"
     static let notchMicrophone = "notchMicrophone"
     static let notchBrightness = "notchBrightness"
     static let notchBattery = "notchBattery"
@@ -1250,6 +1268,7 @@ enum Defaults {
         DefaultsKey.switcherInstantSelection: false,
         DefaultsKey.switcherScreenPlacement: SwitcherScreenPlacement.fallback.rawValue,
         DefaultsKey.switcherCurrentDisplayOnly: false,
+        DefaultsKey.switcherMaxColumns: 0,
         DefaultsKey.minimalWindowPreviews: false,
         DefaultsKey.dockPreviewEnabled: false,
         DefaultsKey.dockPreviewCurrentSpaceOnly: false,
@@ -1326,9 +1345,9 @@ enum Defaults {
         DefaultsKey.shelfAutomaticExclusions: [String](),
         DefaultsKey.extraBrightnessEnabled: false,
         DefaultsKey.extraBrightnessLevel: 100,
-        DefaultsKey.brightnessControlEnabled: false,
-        DefaultsKey.brightnessKeysEnabled: false,
-        DefaultsKey.brightnessOSDEnabled: false,
+        DefaultsKey.brightnessControlEnabled: true,
+        DefaultsKey.brightnessKeysEnabled: true,
+        DefaultsKey.brightnessOSDEnabled: true,
         DefaultsKey.brightnessKeyStep: BrightnessSupport.KeyStep.standard.rawValue,
         DefaultsKey.displayBrightnessShortcutsEnabled: false,
         DefaultsKey.displayBrightnessDecreaseShortcut: "shift+command:27",
@@ -1337,6 +1356,8 @@ enum Defaults {
         DefaultsKey.keyboardBrightnessDecreaseShortcut: "option+command:27",
         DefaultsKey.keyboardBrightnessIncreaseShortcut: "option+command:24",
         DefaultsKey.bluetoothSleepEnabled: false,
+        DefaultsKey.bluetoothAudioRecoveryEnabled: false,
+        DefaultsKey.bluetoothAudioRecoveryDevices: [String: String](),
         DefaultsKey.bluetoothSleepRestoreOnWake: true,
         DefaultsKey.bluetoothSleepRestorePending: false,
         DefaultsKey.musicBlockEnabled: false,
@@ -1484,6 +1505,7 @@ enum Defaults {
         DefaultsKey.notchModuleOrder: "",
         DefaultsKey.notchQuickAccessLayout: Data(),
         DefaultsKey.notchVolume: true,
+        DefaultsKey.notchInputSource: true,
         DefaultsKey.notchMicrophone: true,
         DefaultsKey.notchBrightness: true,
         DefaultsKey.notchBattery: true,
@@ -1727,7 +1749,7 @@ enum Defaults {
         DefaultsKey.mediaTextLanguageCorrection: true,
         DefaultsKey.clipboardHistoryEnabled: false,
         DefaultsKey.clipboardHistoryLimit: 50,
-        DefaultsKey.clipboardHistorySkipSensitive: true,
+        DefaultsKey.clipboardHistoryFilterSensitiveText: false,
         DefaultsKey.clipboardHistoryIncludeImagesFiles: true,
         DefaultsKey.clipboardHistoryIgnoredApps: [String](),
         DefaultsKey.windowLayoutIgnoredApps: [String](),
@@ -1880,6 +1902,8 @@ enum Defaults {
         DefaultsKey.screenshotSharingEnabled: true,
         DefaultsKey.panelUtilityScreenshot: true,
         DefaultsKey.windowLayoutShortcutsEnabled: false,
+        DefaultsKey.windowRememberSizes: false,
+        DefaultsKey.windowRestoreDisplayLayout: false,
         DefaultsKey.windowDirectionalEnabled: false,
         DefaultsKey.windowDirectionalShortcut: GlobalShortcut.windowDirectionalDefault.storageValue,
         DefaultsKey.pointerDisplayEnabled: false,
@@ -1935,6 +1959,7 @@ enum Defaults {
 
     static func register() {
         let defaults = UserDefaults.standard
+        migrateClipboardSensitiveTextOptIn(in: defaults)
         migrateNotchAgentsOptIn(in: defaults)
         migrateExistingNotchDefaults(in: defaults)
         migrateLiquidGlassIsland(in: defaults)
@@ -1960,13 +1985,34 @@ enum Defaults {
         migrateRestoredScreenCaptureShortcuts(in: defaults)
         migrateOrphanedCaptureShortcut(in: defaults)
         migrateSilentHeadphonesDisconnectVolume(in: defaults)
+        migrateAppVolumesToPositions(in: defaults)
         migrateSwitcherWindowlessFinder(in: defaults)
         recheckBrightnessDDCWriteOnlyPaths(in: defaults)
+        enableNativeDisplayKeysOnce(in: defaults)
         hideScratchpadControlOnce(in: defaults)
         hideKeyboardLightControlOnce(in: defaults)
         // The "all apps" output choice now lasts one session; a saved one
         // would move apps that chose their own output after every launch.
         defaults.removeObject(forKey: DefaultsKey.mixerUniversalOutputDevice)
+    }
+
+    /// Adopt the requested on-by-default behavior on upgrades, once only.
+    /// Subsequent explicit opt-outs are respected on every relaunch.
+    static func enableNativeDisplayKeysOnce(in defaults: UserDefaults) {
+        let key = "nativeDisplayKeysDefaultMigratedV1"
+        guard !defaults.bool(forKey: key) else { return }
+        defaults.set(true, forKey: DefaultsKey.brightnessControlEnabled)
+        defaults.set(true, forKey: DefaultsKey.brightnessKeysEnabled)
+        defaults.set(true, forKey: DefaultsKey.brightnessOSDEnabled)
+        defaults.set(true, forKey: AppFeature.brightness.availabilityKey)
+        defaults.set(true, forKey: key)
+    }
+
+    /// Start text filtering off for existing installations as well. A distinct
+    /// key keeps older backups from re-enabling the previous on-by-default
+    /// heuristic, while preserving choices made after this update.
+    static func migrateClipboardSensitiveTextOptIn(in defaults: UserDefaults) {
+        defaults.removeObject(forKey: "clipboardHistorySkipSensitive")
     }
 
     /// Keep the implicit on choice of an existing island profile. A new
@@ -2627,6 +2673,24 @@ enum Defaults {
               stored < minimumMixerHeadphonesDisconnectVolumePercent else { return }
         defaults.set(defaultMixerHeadphonesDisconnectVolumePercent,
                      forKey: DefaultsKey.mixerHeadphonesDisconnectVolumePercent)
+    }
+
+    /// App volumes were saved as the gain itself until the sliders followed
+    /// perceived loudness. Each saved level moves once to the slider position
+    /// that plays it exactly as loud as before, so the update changes where a
+    /// slider sits, never how an app sounds. The marker travels with the
+    /// volumes in a backup: restoring one written before the change clears
+    /// it, and the relaunch that follows converts that backup's levels too.
+    static func migrateAppVolumesToPositions(in defaults: UserDefaults) {
+        guard !defaults.bool(forKey: DefaultsKey.appVolumesArePositions) else { return }
+        defer { defaults.set(true, forKey: DefaultsKey.appVolumesArePositions) }
+        guard let saved = defaults.dictionary(forKey: DefaultsKey.appVolumes), !saved.isEmpty else { return }
+        var positions: [String: Double] = [:]
+        for (id, value) in saved {
+            guard let gain = (value as? NSNumber)?.doubleValue, gain.isFinite else { continue }
+            positions[id] = MixerRoutingSupport.volume(forGain: sanitizedAppVolume(gain))
+        }
+        defaults.set(positions, forKey: DefaultsKey.appVolumes)
     }
 
     static func sanitizedAppOutputDeviceUID(_ value: Any?) -> String? {

@@ -1,0 +1,73 @@
+Resource usage implementation validation — 2026-10-18
+
+Release arm64 build: PASS
+codesign --verify --deep --strict: PASS
+Info.plist lint: PASS
+git diff --check: PASS
+
+Full regression:
+harness: OK (316 checks, 0.08s)
+metrics: OK (470 checks, 0.22s)
+clipboard: OK (1179 checks, 0.91s)
+pointer-input: OK (1027 checks, 0.23s)
+scroll-modifier: OK (350 checks, 0.00s)
+linear-scroll: OK (16 checks, 0.01s)
+preferences: OK (111 checks, 0.07s)
+app-management: OK (360 checks, 0.15s)
+resource-usage: OK (40 checks, 0.82s)
+window-layout: OK (525 checks, 0.17s)
+media: OK (113 checks, 0.28s)
+mixer: OK (536 checks, 0.93s)
+audio-priority: OK (21 checks, 0.00s)
+shelf: OK (472 checks, 0.64s)
+overlays: OK (29 checks, 0.39s)
+updates: OK (869 checks, 2.69s)
+repository: OK (312 checks, 6.95s)
+screenshots: OK (1155 checks, 8.93s)
+recorder: OK (711 checks, 27.61s)
+command-bar: OK (756 checks, 0.43s)
+transient-paste: OK (18 checks, 2.22s)
+notch: OK (71725 checks, 34.33s)
+switcher-model: OK (1839 checks, 0.31s)
+agents: OK (699 checks, 1.87s)
+features: OK (1172 checks, 0.12s)
+utilities: OK (457 checks, 0.43s)
+settings: OK (502 checks, 12.18s)
+feature-hub-layout: OK (18 checks, 10.25s)
+display-restoration: OK (226 checks, 0.01s)
+software-dimming: OK (31 checks, 0.00s)
+capture: OK (158 checks, 0.07s)
+keyboard: OK (20586 checks, 0.07s)
+storage: OK (177 checks, 0.06s)
+quit-protection: OK (207 checks, 0.01s)
+scratchpad: OK (79 checks, 0.00s)
+recording: OK (244 checks, 1.10s)
+network: OK (159 checks, 1.24s)
+app-updates: OK (314 checks, 0.05s)
+localization: OK (7871 checks, 0.45s)
+cleaner: OK (61 checks, 0.32s)
+uninstaller: OK (65 checks, 0.13s)
+force-quit: OK (21 checks, 0.26s)
+launcher: OK (102 checks, 0.01s)
+dock-autohide: OK (181 checks, 13.71s)
+spaces-order: OK (120 checks, 0.62s)
+switcher: OK (272 checks, 4.03s)
+keep-awake: OK (151 checks, 0.04s)
+wallpaper: OK (37 checks, 0.01s)
+emoji: OK (225 checks, 0.10s)
+TESTS OK (117085 checks)
+PREFERENCE CLEANUP TESTS OK
+UNINSTALL SPACES TESTS OK
+DEVELOPER INSTALL ISOLATION TESTS OK
+
+Final Bluetooth fallback adjustment:
+▸ Building & running tests against MacOSX26.sdk…
+app-management: OK (360 checks, 0.29s)
+TESTS OK (360 checks)
+
+Production installation: PASS (./build.sh --install)
+Installed bundle strict deep signature and plist verification: PASS
+Staged versus installed executable content after removing signatures from temporary copies: IDENTICAL
+New process launched from /Applications/實用小工具.app: PID 65274
+Previous app backup: /tmp/vorssaint-resource-rollback-20261018/實用小工具.app
+Physical display/Bluetooth/long-recording and before-after energy measurements remain unverified.

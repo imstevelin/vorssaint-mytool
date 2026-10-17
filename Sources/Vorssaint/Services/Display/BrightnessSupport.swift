@@ -102,12 +102,11 @@ enum BrightnessSupport {
     }
 
     /// Wraps a DDC payload: length-tagged header, payload, XOR checksum. The
-    /// checksum seed covers the destination address, and the sub-address only
-    /// participates for multi-byte payloads (single-byte requests omit it).
+    /// checksum includes both destination (0x6e) and source (0x51), including GET.
     static func packet(payload: [UInt8]) -> [UInt8] {
         var bytes: [UInt8] = [UInt8(0x80 | (payload.count + 1)), UInt8(payload.count)]
         bytes.append(contentsOf: payload)
-        let seed = UInt8(chipAddress << 1) ^ (payload.count == 1 ? 0 : UInt8(dataAddress))
+        let seed = UInt8(chipAddress << 1) ^ UInt8(dataAddress)
         bytes.append(bytes.reduce(seed) { $0 ^ $1 })
         return bytes
     }
@@ -124,11 +123,14 @@ enum BrightnessSupport {
 
     /// Parses a Get VCP Feature reply: checksum first (seeded with the host
     /// address the display answers to), then the big-endian maximum and
-    /// current values. Anything malformed reads as no reply.
-    static func parseReply(_ reply: [UInt8]) -> (current: UInt16, maximum: UInt16)? {
-        guard reply.count >= replyLength else { return nil }
+    /// current values. Anything malformed reads as no reply, and so does a
+    /// reply for another control: a monitor read too early hands back the
+    /// answer to the previous request.
+    static func parseReply(_ reply: [UInt8], code: UInt8) -> (current: UInt16, maximum: UInt16)? {
+        guard reply.count == replyLength else { return nil }
         let checksum = reply[0..<(reply.count - 1)].reduce(UInt8(0x50)) { $0 ^ $1 }
-        guard checksum == reply[reply.count - 1] else { return nil }
+        guard checksum == reply[reply.count - 1], reply[0] == 0x6e, reply[1] == 0x88,
+              reply[2] == 0x02, reply[3] == 0, reply[4] == code else { return nil }
         let maximum = UInt16(reply[6]) << 8 | UInt16(reply[7])
         let current = UInt16(reply[8]) << 8 | UInt16(reply[9])
         return (current, maximum)

@@ -643,7 +643,7 @@ struct UpdatesView: View {
                 .disabled(isBusy)
 
                 if case .available = updates.state {
-                    Button(l10n.s.updateInstallButton) {
+                    Button(l10n.s.viewOnGitHub) {
                         appDelegate()?.showUpdatePreview()
                     }
                     .buttonStyle(.borderedProminent)

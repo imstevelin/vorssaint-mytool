@@ -1,3 +1,20 @@
+# 實用小工具
+
+此為 imstevelin 維護的 macOS 工具版本，基於 Vorssaint（GPL-3.0-or-later）。
+應用程式名稱與圖示已獨立更新；保留原有 Bundle ID 以延續設定與權限。
+
+建置：`./build.sh`。安裝：`./build.sh --install`。
+產物：`build/stage/實用小工具.app`。封裝：`./Tools/make-dmg.sh`。
+視窗尺寸記憶說明請見 [docs/DISPLAY_WINDOW_MEMORY.md](docs/DISPLAY_WINDOW_MEMORY.md)。
+上游研究與獨立更新節奏請見 [docs/UPSTREAM_MAINTENANCE.md](docs/UPSTREAM_MAINTENANCE.md)。
+
+下載及手動更新：[此 fork 的 Releases](https://github.com/imstevelin/vorssaint-mytool/releases)。
+以下官方介紹中的功能／版本資訊由上游維護；安裝此客製版請使用此 fork 的來源與產物。
+
+以下保留上游專案介紹與致謝。
+
+---
+
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/logo-dark.svg">
@@ -9,7 +26,7 @@
 
 <p align="center">
   One menu bar icon doing the job of a dozen paid Mac apps.<br>
-  Free, open source, and local-first.
+  Install only what you use.
 </p>
 
 <p align="center">
@@ -214,8 +231,8 @@ See the [permissions guide](docs/PERMISSIONS.md) for which features need access 
 ### Build it yourself
 
 ```sh
-git clone https://github.com/vorssaint/vorssaint-utils.git
-cd vorssaint-utils
+git clone https://github.com/imstevelin/vorssaint-mytool.git
+cd vorssaint-mytool
 ./build.sh --dev            # build the separate Developer variant
 ./build.sh --dev --install  # install and launch it
 ```

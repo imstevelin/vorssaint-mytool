@@ -145,6 +145,12 @@ enum LocalizationFeatureContractTests {
                    && !strings.switcherAppearanceDelay.contains("—")
                    && !strings.switcherAppearanceDelayCaption.contains("—"),
                    "\(prefix) App Switcher appearance-delay labels are present without em dash")
+            suite.expect(!strings.switcherMaxColumns.isEmpty
+                   && !strings.switcherMaxColumnsCaption.isEmpty
+                   && !strings.switcherMaxColumnsAuto.isEmpty
+                   && !strings.switcherMaxColumns.contains("—")
+                   && !strings.switcherMaxColumnsCaption.contains("—"),
+                   "\(prefix) App Switcher max-columns labels are present without em dash")
             suite.expect(!strings.switcherWindowlessApps.isEmpty
                    && !strings.switcherWindowlessApps.contains("—"),
                    "\(prefix) App Switcher windowless apps title is present without em dash")
@@ -163,6 +169,8 @@ enum LocalizationFeatureContractTests {
                    && !strings.switcherWindowlessAppsFinder.contains("—")
                    && !strings.switcherWindowlessAppsAll.contains("—"),
                    "\(prefix) App Switcher windowless apps choices are all present without em dash")
+            expectFormat(strings.switcherWindowlessAppsLockedFormat, ["@"],
+                         "\(prefix) App Switcher windowless apps locked reason names the shortcut takeover")
             suite.expect(!strings.diskAvailable.isEmpty
                    && !strings.diskPurgeable.isEmpty
                    && !strings.diskAvailable.contains("—")
@@ -362,7 +370,7 @@ enum LocalizationFeatureContractTests {
         suite.expect(bundleLocalizations.contains("tr"), "Info.plist declares Turkish as a bundle localization")
         suite.expect(bundleLocalizations.contains("ko"), "Info.plist declares Korean as a bundle localization")
         let baseAudioPrompt = infoPlist?["NSAudioCaptureUsageDescription"] as? String ?? ""
-        suite.expect(baseAudioPrompt.contains("Vorssaint uses each app's audio"),
+        suite.expect(baseAudioPrompt.contains("實用小工具 uses each app's audio"),
                "base audio permission prompt is an English fallback")
         let organizerFolderPromptKeys = [
             "NSDesktopFolderUsageDescription", "NSDocumentsFolderUsageDescription",

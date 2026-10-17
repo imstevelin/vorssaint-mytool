@@ -30,7 +30,7 @@ enum FeaturePreset: String, CaseIterable, Identifiable {
     var features: Set<AppFeature> {
         switch self {
         case .essential:
-            return [.mixer, .keepAwake,
+            return [.mixer, .keepAwake, .brightness,
                     .monitorCPU, .monitorGPU, .monitorMemory,
                     .monitorNetwork, .monitorDisk, .monitorPower]
         case .windows:

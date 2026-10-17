@@ -143,6 +143,7 @@ struct BrightnessSection: View {
                     .disabled(service.isDisplayPending(display.id))
                     .accessibilityLabel(display.name)
             }
+            DisplayHardwareControls(display: display, compact: true)
             SoftwareDimmingButton(display: display, compact: true)
         }
     }

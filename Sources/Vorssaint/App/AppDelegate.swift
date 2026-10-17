@@ -56,6 +56,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
+        #if VORSSAINT_DEVELOPMENT
+        if DisplayIntegrationValidation.startIfRequested() { return }
+        #endif
         // Before any window exists, so nothing is ever built with the wrong
         // appearance and then repainted.
         AppAppearanceController.shared.apply()
@@ -75,6 +78,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
         // build, or retire a leftover old-named bundle. Returns true when we are
         // quitting to relaunch under the new name, so skip the rest of startup.
         if BundleMigration.run() { return }
+
+        DispatchQueue.global(qos: .utility).async {
+            RecorderGIFWorkspace.sweep()
+        }
 
         // Shape a clean install before any feature can create a listener,
         // timer or shortcut. The onboarding can replace this set after the
@@ -282,6 +289,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
 
     func applicationWillTerminate(_ notification: Notification) {
         isTerminating = true
+        if AppFeature.windowLayout.isAvailable { DisplayWindowMemoryService.shared.flush() }
+        AgentUsageService.shared.flushProgressBeforeTermination()
+        VirtualHiDPIService.shared.stopAll()
         CommandBarService.shared.restoreBorrowedInputSource()
         if AppFeature.notch.isAvailable { NotchService.shared.stop(restoreCapture: false) }
         // Quitting properly means the start worked, whenever it happened.

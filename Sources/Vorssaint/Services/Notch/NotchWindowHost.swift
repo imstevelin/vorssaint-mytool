@@ -797,9 +797,7 @@ private final class NotchFrameProbe {
     /// to run the frame probe, never a visibility decision by itself, and the
     /// size check leaves Stage Manager's strip out.
     static func overviewIsVisible(on screen: CGRect) -> Bool {
-        guard let windows = CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID)
-                as? [[String: Any]] else { return false }
-        return windows.contains { window in
+        return WindowServerSnapshot.onScreen().contains { window in
             let owner = window[kCGWindowOwnerName as String] as? String
             let layer = window[kCGWindowLayer as String] as? Int
             if owner == "Dock" { return layer == 18 }
@@ -1619,6 +1617,8 @@ private final class NotchCanvas: NSView {
         // lead; otherwise it sets off at once and settles.
         let timing = trailsGrowth ? CAMediaTimingFunction(controlPoints: 0.6, 0, 0.3, 1)
             : CAMediaTimingFunction(controlPoints: 0.22, 1, 0.36, 1)
+        let previousY = mascotBridge.isHidden ? baseline
+            : (mascotBridge.layer?.presentation()?.position.y ?? mascotBridge.frame.midY)
         mascotBridgeSpot = (to, baseline, size)
         // Its layer is its own, which Core Animation would fade in and move
         // from where it last was.
@@ -1633,11 +1633,13 @@ private final class NotchCanvas: NSView {
         mascotBridge.scale(from: scale.from, to: scale.to, duration: duration, timing: timing)
         mascotBridge.isHidden = false
         CATransaction.commit()
-        guard !reduceMotion, abs(from - to) > 0.25, let layer = mascotBridge.layer else { return }
+        let verticalDelta = previousY - mascotBridge.frame.midY
+        guard !reduceMotion, abs(from - to) > 0.25 || abs(verticalDelta) > 0.25,
+              let layer = mascotBridge.layer else { return }
         // The little way between where the closed and the open island keep it.
-        let slide = CABasicAnimation(keyPath: "position.x")
-        slide.fromValue = from - to
-        slide.toValue = 0
+        let slide = CABasicAnimation(keyPath: "position")
+        slide.fromValue = NSValue(point: CGPoint(x: from - to, y: verticalDelta))
+        slide.toValue = NSValue(point: .zero)
         slide.isAdditive = true
         slide.duration = duration
         slide.timingFunction = timing

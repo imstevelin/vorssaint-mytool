@@ -7,6 +7,9 @@ import os
 /// Runs both production key callbacks against changing display routes. No
 /// event is posted and no real display, pointer or preference is touched.
 enum BrightnessKeyRoutingTests {
+    enum VirtualHiDPIService {
+        static func physicalDisplay(for id: UInt32) -> UInt32 { id == 42 ? 2 : id }
+    }
     final class CGEvent {
         var flags: CGEventFlags = []
         var marker: Int64 = 0
@@ -149,6 +152,12 @@ enum BrightnessKeyRoutingTests {
             suite.expect(press(native, repeated: true) && press(native, down: false)
                          && native.steps == 1,
                          "\(kind): returning to the built-in display cannot leak a handled repeat or release")
+
+            let mirrored = service()
+            NSScreen.current = 42
+            suite.expect(press(mirrored) && mirrored.steps == 1,
+                         "\(kind): a virtual HiDPI desktop routes brightness to its physical monitor")
+            _ = press(mirrored, down: false)
 
             let wake = service()
             NSScreen.current = 2

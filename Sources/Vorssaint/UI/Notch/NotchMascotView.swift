@@ -39,14 +39,23 @@ final class NotchMascotRig: NSObject {
     private(set) var mood = NotchMascotMood.idle
     /// Whether it blinks now and then and, after a long rest, grows sleepy.
     private(set) var idles = false
-    var reduceMotion = false
+    var reduceMotion = false {
+        didSet { if reduceMotion != oldValue { syncBreathing(); stopFidgeting() } }
+    }
 
     private let hopper = CALayer()
+    private let breather = CALayer()
     private let squasher = CALayer()
     private let tilter = CALayer()
+    private let portrait = CALayer()
     /// Where the eyes are drawn to beyond the face it keeps: the text being
     /// typed, or the pointer over the island.
     private let attention = CALayer()
+    private let tail = CAShapeLayer()
+    private let innerEars = CAShapeLayer()
+    private let muzzle = CAShapeLayer()
+    private let nose = CAShapeLayer()
+    private let whiskers = CAShapeLayer()
     private let ears = CAShapeLayer()
     private let antenna = CAShapeLayer()
     private let bulb = CAShapeLayer()
@@ -58,6 +67,9 @@ final class NotchMascotRig: NSObject {
     private let leftEye = CAShapeLayer()
     private let rightEye = CAShapeLayer()
     private var blinks = 0
+    private var nextFidgetAt: CFTimeInterval = 0
+    private var encounterWindow: ClosedRange<CFTimeInterval>?
+    private var encounterAcknowledged = false
     /// It grew sleepy on its own after a long rest, rather than being shown
     /// so, and anything that happens wakes it.
     private var dozed = false
@@ -73,15 +85,17 @@ final class NotchMascotRig: NSObject {
     override init() {
         super.init()
         root.addSublayer(hopper)
-        hopper.addSublayer(squasher)
+        hopper.addSublayer(breather)
+        breather.addSublayer(squasher)
         squasher.addSublayer(tilter)
-        for layer in [ears, antenna, bulb, fill, visor, shine] { tilter.addSublayer(layer) }
-        tilter.addSublayer(attention)
+        tilter.addSublayer(portrait)
+        for layer in [tail, ears, innerEars, antenna, bulb, fill, visor, muzzle, nose, whiskers, shine] { portrait.addSublayer(layer) }
+        portrait.addSublayer(attention)
         attention.addSublayer(face)
         face.addSublayer(leftEye)
         face.addSublayer(rightEye)
         fill.mask = fillMask
-        for layer in [root, hopper, squasher, tilter, attention, face, ears, antenna, bulb, fill, fillMask, visor, shine,
+        for layer in [root, hopper, breather, squasher, tilter, portrait, attention, face, tail, ears, innerEars, muzzle, nose, whiskers, antenna, bulb, fill, fillMask, visor, shine,
                       leftEye, rightEye] {
             layer.actions = Self.noActions
         }
@@ -118,14 +132,16 @@ final class NotchMascotRig: NSObject {
         }
         let box = CGRect(x: 0, y: 0, width: size, height: size)
         root.bounds = box
-        for layer in [hopper, squasher, tilter, attention, face, ears, antenna, bulb, fill, fillMask, visor, shine] {
+        portrait.transform = CATransform3DIdentity
+        for layer in [hopper, breather, squasher, tilter, portrait, attention, face, tail, ears, innerEars, muzzle, nose, whiskers, antenna, bulb, fill, fillMask, visor, shine] {
             layer.frame = box
             layer.contentsScale = scale
         }
         root.contentsScale = scale
+        let figureScale = NotchMascotGeometry.displayScale(look)
+        portrait.transform = CATransform3DMakeScale(figureScale, figureScale, 1)
         let robot = look.style == .robot
-        let palette = look.palette
-        fill.colors = [palette.light.cgColor, palette.shade.cgColor]
+        fill.colors = [CGColor(gray: 1, alpha: 1), CGColor(gray: 1, alpha: 1)]
         fill.startPoint = CGPoint(x: 0.5, y: 0)
         fill.endPoint = CGPoint(x: 0.5, y: 1)
         if robot {
@@ -135,29 +151,56 @@ final class NotchMascotRig: NSObject {
             antenna.path = parts.antenna
             bulb.path = parts.bulb
             visor.path = parts.visor
-            ears.fillColor = palette.shade.cgColor
-            antenna.fillColor = palette.shade.cgColor
-            bulb.fillColor = (mood == .sleepy ? palette.shade : palette.light).cgColor
-            bulb.shadowColor = palette.light.cgColor
+            ears.fillColor = CGColor(gray: 1, alpha: 1)
+            antenna.fillColor = CGColor(gray: 1, alpha: 1)
+            bulb.fillColor = CGColor(gray: mood == .sleepy ? 0.45 : 1, alpha: 1)
+            bulb.shadowColor = CGColor(gray: 1, alpha: 1)
             bulb.shadowRadius = max(0.8, size * 0.09)
             bulb.shadowOffset = .zero
             for eye in [leftEye, rightEye] {
-                eye.fillColor = palette.light.cgColor
-                eye.shadowColor = palette.light.cgColor
+                eye.fillColor = CGColor(gray: 1, alpha: 1)
+                eye.shadowColor = CGColor(gray: 1, alpha: 1)
                 eye.shadowOpacity = 0.9
                 eye.shadowRadius = max(0.6, size * 0.04)
                 eye.shadowOffset = .zero
             }
         } else {
-            fillMask.path = NotchMascotGeometry.body(look.shape, size: size)
+            if look.style.isAnimal {
+                let parts = NotchMascotGeometry.animal(look.style, size: size)
+                fillMask.path = parts.head
+                ears.path = parts.ears
+                innerEars.path = parts.innerEars
+                muzzle.path = parts.muzzle
+                nose.path = parts.nose
+                whiskers.path = parts.whiskers
+                tail.path = parts.tail
+                ears.fillColor = CGColor(gray: 1, alpha: 1)
+                tail.fillColor = CGColor(gray: 1, alpha: 1)
+                innerEars.fillColor = NotchMascotColor.ink.cgColor
+                muzzle.fillColor = CGColor(gray: 1, alpha: 1)
+                muzzle.strokeColor = look.style == .dog ? nil : NotchMascotColor.ink.cgColor
+                muzzle.lineWidth = max(0.3, size * 0.012)
+                nose.fillColor = NotchMascotColor.ink.cgColor
+                whiskers.fillColor = nil
+                whiskers.strokeColor = NotchMascotColor.ink.cgColor
+                whiskers.lineWidth = max(0.35, size * 0.018)
+                whiskers.lineCap = .round
+            } else {
+                fillMask.path = NotchMascotGeometry.body(look.shape, size: size)
+            }
             for eye in [leftEye, rightEye] {
                 eye.fillColor = NotchMascotColor.ink.cgColor
                 eye.shadowOpacity = 0
             }
         }
-        for layer in [ears, antenna, bulb, visor] { layer.isHidden = !robot }
+        ears.isHidden = !robot && !look.style.isAnimal
+        for layer in [antenna, bulb, visor] { layer.isHidden = !robot }
+        for layer in [tail, innerEars, muzzle, nose, whiskers] { layer.isHidden = !look.style.isAnimal }
+        // Accessories pivot around the head and tail root, in their own boxes.
+        tail.anchorPoint = CGPoint(x: 0.74, y: 0.83)
+        tail.position = CGPoint(x: size * 0.74, y: size * 0.83)
         shine.path = NotchMascotGeometry.shine(look.face, size: size)
-        shine.isHidden = robot
+        shine.isHidden = true
         let face = look.face
         let side = size * 0.4
         leftEye.frame = CGRect(x: face.leftEye.x * size - side / 2, y: face.leftEye.y * size - side / 2, width: side, height: side)
@@ -165,6 +208,9 @@ final class NotchMascotRig: NSObject {
         leftEye.contentsScale = scale
         rightEye.contentsScale = scale
         apply(mood.expression, animated: false)
+        stopFidgeting()
+        breather.removeAnimation(forKey: "breathing")
+        syncBreathing()
     }
 
     // MARK: Faces
@@ -271,7 +317,7 @@ final class NotchMascotRig: NSObject {
     /// Back to its own face at rest, with every motion taken off.
     func reset(to mood: NotchMascotMood) {
         stopBlinking()
-        for layer in [root, hopper, squasher, tilter, attention, face, leftEye, rightEye] { layer.removeAllAnimations() }
+        for layer in [root, hopper, breather, squasher, tilter, attention, face, ears, tail, innerEars, leftEye, rightEye] { layer.removeAllAnimations() }
         attention.transform = CATransform3DIdentity
         self.mood = mood
         blinks = 0
@@ -295,6 +341,7 @@ final class NotchMascotRig: NSObject {
     func endVisit() {
         for layer in [root, squasher, face] { layer.removeAnimation(forKey: "visit") }
         root.removeAnimation(forKey: "visitFade")
+        clearEncounter()
         blinksResume = CACurrentMediaTime()
         stopBlinking()
         syncBlinking()
@@ -306,6 +353,7 @@ final class NotchMascotRig: NSObject {
         guard root.animation(forKey: "visit") != nil, CACurrentMediaTime() >= visitEnds else { return }
         for layer in [root, squasher, face] { layer.removeAnimation(forKey: "visit") }
         root.removeAnimation(forKey: "visitFade")
+        clearEncounter()
     }
     /// It grew sleepy on its own after a long rest.
     var isDozing: Bool { dozed }
@@ -407,7 +455,7 @@ final class NotchMascotRig: NSObject {
     /// it wakes.
     private func lightBulb(_ lit: Bool, animated: Bool) {
         guard look.style == .robot else { return }
-        let color = (lit ? look.palette.light : look.palette.shade).cgColor
+        let color = CGColor(gray: lit ? 1 : 0.45, alpha: 1)
         if animated {
             let fade = CABasicAnimation(keyPath: "fillColor")
             fade.fromValue = bulb.presentation()?.fillColor ?? bulb.fillColor
@@ -424,9 +472,9 @@ final class NotchMascotRig: NSObject {
     /// Lit already, the bulb shows dark a moment longer, then lights.
     private func relightBulb(after delay: TimeInterval) {
         guard look.style == .robot else { return }
-        let dark = look.palette.shade.cgColor
+        let dark = CGColor(gray: 0.45, alpha: 1)
         let light = CAKeyframeAnimation(keyPath: "fillColor")
-        light.values = [dark, dark, look.palette.light.cgColor]
+        light.values = [dark, dark, CGColor(gray: 1, alpha: 1)]
         light.keyTimes = [0, NSNumber(value: delay / (delay + 0.3)), 1]
         light.duration = delay + 0.3
         bulb.add(light, forKey: "light")
@@ -503,6 +551,8 @@ final class NotchMascotRig: NSObject {
         if dozed, reaction != .wakeUp { setMood(.idle, animated: !reduceMotion) }
         blinks = 0
         let now = CACurrentMediaTime()
+        stopFidgeting()
+        if !reduceMotion, look.style.isAnimal { animateAccessory(happy: reaction == .love || reaction == .celebrate || reaction == .wakeUp) }
         glowBulb(for: reaction.length)
         guard !reduceMotion else {
             switch reaction {
@@ -674,6 +724,20 @@ final class NotchMascotRig: NSObject {
         // for a strip drawn after it, until the island moves on.
         guard now < start + path.duration || (holdsEnd && !reduceMotion) else { return }
         visitEnds = start + path.duration
+        encounterWindow = path.interaction.map { (start + $0.lowerBound)...(start + $0.upperBound) }
+        encounterAcknowledged = false
+        stopFidgeting()
+        breather.removeAnimation(forKey: "breathing")
+        // Distinct face beats are scheduled once and run in the render server.
+        for key in leftEye.animationKeys() ?? [] where key.hasPrefix("autonomous-") {
+            leftEye.removeAnimation(forKey: key); rightEye.removeAnimation(forKey: key)
+        }
+        for (index, act) in path.acts.enumerated() {
+            flashFace(act.mood, duration: act.length, beginTime: start + act.time, key: "autonomous-\(index)")
+        }
+        if !reduceMotion, look.style.isAnimal {
+            animateAccessory(happy: look.style == .dog, beginTime: start + 4.4)
+        }
         if reduceMotion {
             // No stroll: it fades in where it would greet, says hello and fades out.
             let still = CAKeyframeAnimation(keyPath: "position")
@@ -739,7 +803,9 @@ final class NotchMascotRig: NSObject {
         let wanted = idles && visible
         guard wanted != self.idles else { return }
         self.idles = wanted
+        syncBreathing()
         if !wanted {
+            stopFidgeting()
             stopBlinking()
             if dozed, !idles { setMood(.idle, animated: false) }
         } else { syncBlinking() }
@@ -752,6 +818,7 @@ final class NotchMascotRig: NSObject {
     }
 
     private func syncBlinking() {
+        syncBreathing()
         guard idles, mood.expression.blinks, size > 0 else { stopBlinking(); return }
         guard leftEye.animation(forKey: "blink") == nil else { return }
         scheduleBlink()
@@ -826,7 +893,110 @@ final class NotchMascotRig: NSObject {
             dozed = true
             return
         }
+        let now = CACurrentMediaTime()
+        if !reduceMotion, !ProcessInfo.processInfo.isLowPowerModeEnabled, !isVisiting,
+           now >= blinksResume, now - attended > 3, now >= nextFidgetAt {
+            fidget()
+            nextFidgetAt = now + Double.random(in: 10...22)
+        }
         syncBlinking()
+    }
+
+    private func clearEncounter() {
+        encounterWindow = nil
+        for key in leftEye.animationKeys() ?? [] where key.hasPrefix("autonomous-") {
+            leftEye.removeAnimation(forKey: key); rightEye.removeAnimation(forKey: key)
+        }
+        tail.removeAnimation(forKey: "personality")
+    }
+
+    /// A visitor pauses to invite a response, rather than ignoring the pointer.
+    var acceptsEncounter: Bool {
+        guard isVisiting, !encounterAcknowledged, let encounterWindow else { return false }
+        let now = CACurrentMediaTime()
+        return now >= encounterWindow.lowerBound && now <= encounterWindow.upperBound - 1
+    }
+
+    func acknowledgeEncounter() {
+        guard acceptsEncounter else { return }
+        encounterAcknowledged = true
+        for key in leftEye.animationKeys() ?? [] where key.hasPrefix("autonomous-") {
+            leftEye.removeAnimation(forKey: key); rightEye.removeAnimation(forKey: key)
+        }
+        react(.love, lift: 0)
+    }
+
+    func refreshEnergyPolicy() {
+        syncBreathing()
+        if ProcessInfo.processInfo.isLowPowerModeEnabled { stopFidgeting() }
+    }
+
+    private func syncBreathing() {
+        guard idles, size > 0, !reduceMotion, !ProcessInfo.processInfo.isLowPowerModeEnabled, !isVisiting else {
+            breather.removeAnimation(forKey: "breathing"); return
+        }
+        guard breather.animation(forKey: "breathing") == nil else { return }
+        let breath = CAKeyframeAnimation(keyPath: "transform")
+        breath.values = [CATransform3DIdentity, CATransform3DMakeScale(1.012, 1.027, 1), CATransform3DIdentity]
+            .map { NSValue(caTransform3D: $0) }
+        breath.keyTimes = [0, 0.48, 1]
+        breath.duration = look.style.breathingPeriod
+        breath.repeatCount = .infinity
+        breath.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+        breather.add(breath, forKey: "breathing")
+    }
+
+    private func stopFidgeting() {
+        for layer in [ears, innerEars, tail, tilter, attention, squasher, breather] {
+            layer.removeAnimation(forKey: "personality")
+        }
+    }
+
+    private func animateAccessory(happy: Bool, beginTime: CFTimeInterval? = nil) {
+        guard look.style.isAnimal, !reduceMotion else { return }
+        let wag = CAKeyframeAnimation(keyPath: "transform.rotation.z")
+        let amplitude: CGFloat = look.style == .dog ? (happy ? 0.10 : 0.06) : 0.12
+        wag.values = [0, amplitude, -amplitude, amplitude * 0.6, 0]
+        wag.keyTimes = [0, 0.2, 0.45, 0.7, 1]
+        wag.duration = happy ? 0.8 : 1.3
+        wag.isAdditive = true
+        if let beginTime { wag.beginTime = beginTime }
+        let accessories = look.style == .dog ? [ears, innerEars] : [tail]
+        for accessory in accessories { accessory.add(wag, forKey: "personality") }
+    }
+
+    private func fidget() {
+        guard let gesture = look.style.fidgets.randomElement() else { return }
+        switch gesture {
+        case .stretch:
+            let motion = CAKeyframeAnimation(keyPath: "transform")
+            motion.values = [squashed(0), squashed(-0.08), squashed(-0.08), squashed(0)]
+                .map { NSValue(caTransform3D: $0) }
+            motion.keyTimes = [0, 0.35, 0.65, 1]
+            motion.duration = look.style == .bear ? 2 : 1.3
+            squasher.add(motion, forKey: "personality")
+        case .tailWag: animateAccessory(happy: look.style == .dog)
+        case .bounce:
+            let motion = CAKeyframeAnimation(keyPath: "transform.translation.y")
+            motion.values = [0, -size * 0.08, 0, -size * 0.04, 0]
+            motion.keyTimes = [0, 0.3, 0.55, 0.77, 1]
+            motion.duration = 0.9
+            motion.isAdditive = true
+            breather.add(motion, forKey: "personality")
+        case .earFlick, .headTilt, .wiggle:
+            let motion = CAKeyframeAnimation(keyPath: "transform.rotation.z")
+            let amplitude: CGFloat = gesture == .wiggle ? 0.08 : 0.13
+            motion.values = [0, amplitude, -amplitude * 0.4, amplitude * 0.25, 0]
+            motion.keyTimes = [0, 0.22, 0.5, 0.76, 1]
+            motion.duration = look.style == .bear ? 1.8 : 1.1
+            motion.isAdditive = true
+            if gesture == .earFlick {
+                ears.add(motion, forKey: "personality"); innerEars.add(motion, forKey: "personality")
+            } else { tilter.add(motion, forKey: "personality") }
+        case .scan:
+            attend(to: CGPoint(x: Bool.random() ? 0.08 : -0.08, y: -0.02), hold: 0.65)
+            if look.style == .robot { glowBulb(for: 1.2) }
+        }
     }
 }
 
@@ -849,6 +1019,7 @@ final class NotchMascotHostView: NSView {
     private let stage = CALayer()
     private let visibilityMask = CAShapeLayer()
     private var visibilityObserver: NSObjectProtocol?
+    private var energyObserver: NSObjectProtocol?
     private var idlesWhenVisible = false
     private var playedVisit: UUID?
     private var lastCueID = 0
@@ -864,7 +1035,10 @@ final class NotchMascotHostView: NSView {
         didSet {
             guard followsPointer != oldValue else { return }
             updateTrackingAreas()
-            if !followsPointer { mascot.lookAhead() }
+            if !followsPointer {
+                mascot.lookAhead()
+                pettingWork?.cancel(); pettingWork = nil
+            }
         }
     }
     private var pointerArea: NSTrackingArea?
@@ -887,6 +1061,8 @@ final class NotchMascotHostView: NSView {
         stage.actions = ["position": NSNull(), "bounds": NSNull(), "mask": NSNull()]
         root.addSublayer(stage)
         stage.addSublayer(mascot.root)
+        energyObserver = NotificationCenter.default.addObserver(forName: .NSProcessInfoPowerStateDidChange,
+            object: nil, queue: .main) { [weak self] _ in self?.mascot.refreshEnergyPolicy() }
         setAccessibilityElement(false)
     }
 
@@ -894,6 +1070,7 @@ final class NotchMascotHostView: NSView {
 
     deinit {
         if let visibilityObserver { NotificationCenter.default.removeObserver(visibilityObserver) }
+        if let energyObserver { NotificationCenter.default.removeObserver(energyObserver) }
         if let dragObserver { NotificationCenter.default.removeObserver(dragObserver) }
         islandObservers.forEach(NotificationCenter.default.removeObserver)
         if let yieldObserver { NotificationCenter.default.removeObserver(yieldObserver) }
@@ -1039,9 +1216,9 @@ final class NotchMascotHostView: NSView {
     /// A second of the pointer resting on it brings out the hearts, at most
     /// once in a while. One work item waits per pat, nothing ticks.
     private func notePetting(at point: CGPoint) {
-        let center = mascot.root.position
+        let center = mascot.root.presentation()?.position ?? mascot.root.position
         let reach = mascot.size / 2 + 3
-        guard abs(point.x - center.x) <= reach, abs(point.y - center.y) <= reach, !mascot.isVisiting else {
+        guard abs(point.x - center.x) <= reach, abs(point.y - center.y) <= reach, (!mascot.isVisiting || mascot.acceptsEncounter) else {
             pettingWork?.cancel(); pettingWork = nil
             return
         }
@@ -1050,8 +1227,10 @@ final class NotchMascotHostView: NSView {
         let work = DispatchWorkItem { [weak self] in
             guard let self else { return }
             self.pettingWork = nil
+            guard self.isOnScreen, !self.mascot.isVisiting || self.mascot.acceptsEncounter else { return }
             self.lastPetting = CACurrentMediaTime()
-            self.mascot.react(.love, lift: 0)
+            if self.mascot.isVisiting { self.mascot.acknowledgeEncounter() }
+            else { self.mascot.react(.love, lift: 0) }
             // A soft tick under a finger on the trackpad, as the hearts come.
             if NotchSupport.usesHapticFeedback() {
                 NSHapticFeedbackManager.defaultPerformer.perform(.generic, performanceTime: .now)
@@ -1078,7 +1257,7 @@ final class NotchMascotHostView: NSView {
     /// Moves come only while the pointer moves over it: nothing runs while
     /// it rests, and each look is one short animation from where the eyes are.
     private func follow(_ event: NSEvent) {
-        guard !mascot.isVisiting else { return }
+        guard !mascot.isVisiting || mascot.acceptsEncounter else { return }
         let point = convert(event.locationInWindow, from: nil)
         mascot.attend(to: NotchMascotSupport.pointerGaze(from: mascot.root.position, to: point, size: mascot.size))
     }
@@ -1288,7 +1467,7 @@ struct NotchMascotTrackView: NSViewRepresentable {
                               height: track.height * 3)]
         }
         view.place(at: CGPoint(x: x, y: track.baseline), visible: visible)
-        view.followsPointer = rests && awake
+        view.followsPointer = awake && (rests || visit?.kind.isAutonomous == true)
         view.followsIsland = followsIsland && rests && awake
         view.yieldsToActivities = yieldsToActivities
         // A countdown is watched from the camera's left whatever the side.

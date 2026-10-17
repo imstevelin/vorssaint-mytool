@@ -30,9 +30,18 @@ enum SettingsBackupSupport {
     }
 
     static func keysToClear(whenImporting settings: [String: Any]) -> Set<String> {
-        let keys = exportKeys()
-        guard omitsDynamicIslandSettings(settings) else { return keys }
-        return keys.subtracting(dynamicIslandKeys(in: keys))
+        var keys = exportKeys()
+        if omitsDynamicIslandSettings(settings) {
+            keys.subtract(dynamicIslandKeys(in: keys))
+        }
+        // An official backup predates this fork's display memory switches.
+        // Importing it must not turn off choices made in the fork afterward.
+        for key in [DefaultsKey.windowRememberSizes, DefaultsKey.windowRestoreDisplayLayout,
+                    DefaultsKey.bluetoothAudioRecoveryEnabled, DefaultsKey.bluetoothAudioRecoveryDevices]
+            where settings[key] == nil {
+            keys.remove(key)
+        }
+        return keys
     }
 
     private static func dynamicIslandKeys(in keys: Set<String>) -> Set<String> {
@@ -56,8 +65,10 @@ enum SettingsBackupSupport {
         DefaultsKey.commandBarRowShortcuts,
         DefaultsKey.language,
         DefaultsKey.appVolumes,
+        DefaultsKey.appVolumesArePositions,
         DefaultsKey.appOutputDevices,
         DefaultsKey.mixerHiddenApps,
+        DefaultsKey.volumeFeedbackSoundEnabled,
         DefaultsKey.preferredInputDevice,
         DefaultsKey.soundOutputSwitcherDeviceUIDs,
         DefaultsKey.menuBarCPU,
@@ -99,6 +110,8 @@ enum SettingsBackupSupport {
     /// out by construction (they are not preference keys), listed here only
     /// when they would otherwise slip in through the registered set.
     static let machineStateKeys: Set<String> = [
+        "displayHardwareAudioBindingsLocalV1",
+        "virtualHiDPIProfilesLocalV1",
         DefaultsKey.displaysSwitchedOff,
         DefaultsKey.displaysSwitchedOffFingerprints,
         DefaultsKey.dockPreviewRestoreAutohide,
@@ -108,6 +121,8 @@ enum SettingsBackupSupport {
         DefaultsKey.spacesOrderRestartPending,
         // A Bluetooth restore owed by one sleeping Mac means nothing on another.
         DefaultsKey.bluetoothSleepRestorePending,
+        DefaultsKey.bluetoothAudioRecoveryLastAttempt,
+        DefaultsKey.bluetoothAudioRecoveryAwaitingReconnectUID,
         DefaultsKey.micMuteActive,
         DefaultsKey.micMuteSavedVolume,
         // Levels and device ids belong to the microphones of one Mac.

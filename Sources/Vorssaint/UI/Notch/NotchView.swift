@@ -322,6 +322,9 @@ struct NotchView: View {
         .padding(.top, service.expandedGeometry.headerTopInset)
         .padding(.bottom, NotchLayout.bottomInset)
         .frame(width: service.expandedSize.width, height: service.expandedSize.height, alignment: .top)
+        // Opening the island makes its panel key, so Keyboard navigation would ring
+        // the first header button. Show the ring once keyboard input begins.
+        .focusEffectDisabled(!service.showsKeyboardFocus)
     }
 
     /// Keep each page's minimum usable layout reachable when a custom height
@@ -890,11 +893,9 @@ struct NotchRestingStrip: View {
             }
         }
         .foregroundStyle(.white.opacity(0.9))
-        // The strip stays in its band at the top: hover grows the island
-        // around it, and centring it in the taller shape dropped it half
-        // the growth in one frame.
+        // Keep the resting content and its companion centred in the current surface.
         .frame(height: geometry.stripHeight)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
         .contentShape(Rectangle())
         .accessibilityHidden(true)
     }

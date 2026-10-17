@@ -248,6 +248,7 @@ final class FeatureRuntime: ObservableObject {
             WindowUseTracker.shared.syncWithFeatures()
             WindowLayoutService.shared.syncWithPreferences()
             PointerDisplayService.shared.syncWithPreferences()
+            DisplayWindowMemoryService.shared.syncWithPreferences()
         },
         .autoQuit: { AutoQuitService.shared.syncWithPreferences() },
         .spacesOrder: { SpacesOrderHold.shared.syncWithPreferences() },
@@ -298,6 +299,7 @@ final class FeatureRuntime: ObservableObject {
         .soundOutputSwitcher: {
             AppVolumeMixer.shared.syncWithPreferences()
             SoundOutputSwitcher.shared.syncWithPreferences()
+            BluetoothAudioRecoveryService.shared.syncWithPreferences()
         },
         .audioPriority: {
             // Priority owns no sibling CoreAudio listener stack. Keep the

@@ -26,6 +26,72 @@ enum AppManagementFeatureTests {
                "no Bluetooth restore is owed before the first sleep")
         suite.expect(!SettingsBackupSupport.exportKeys().contains(DefaultsKey.bluetoothSleepRestorePending),
                "a Bluetooth restore owed by one sleeping Mac never travels to another")
+        suite.expect(registeredDefaults[DefaultsKey.bluetoothAudioRecoveryEnabled] as? Bool == false
+               && SettingsBackupSupport.exportKeys().contains(DefaultsKey.bluetoothAudioRecoveryEnabled)
+               && !SettingsBackupSupport.exportKeys().contains(DefaultsKey.bluetoothAudioRecoveryLastAttempt)
+               && !SettingsBackupSupport.exportKeys().contains(DefaultsKey.bluetoothAudioRecoveryAwaitingReconnectUID)
+               && !SettingsBackupSupport.keysToClear(whenImporting: [:]).contains(
+                    DefaultsKey.bluetoothAudioRecoveryEnabled),
+               "speaker recovery is opt-in and only its preference travels in a backup")
+        let start = Date(timeIntervalSince1970: 1_000_000)
+        var recovery = BluetoothAudioRecoveryPolicy()
+        suite.expect(!recovery.observe(uid: nil, now: start, previousAttempt: nil, selectedUIDs: ["speaker", "speaker-reenumerated"]),
+                     "startup without a speaker is a baseline")
+        suite.expect(recovery.observe(uid: "speaker", now: start.addingTimeInterval(3),
+                                      previousAttempt: nil, selectedUIDs: ["speaker", "speaker-reenumerated"]),
+                     "a new Bluetooth output triggers once")
+        suite.expect(!recovery.observe(uid: nil, now: start.addingTimeInterval(6),
+                                      previousAttempt: start.addingTimeInterval(3), selectedUIDs: ["speaker", "speaker-reenumerated"])
+                     && !recovery.observe(uid: "speaker", now: start.addingTimeInterval(20),
+                                          previousAttempt: start.addingTimeInterval(3), selectedUIDs: ["speaker", "speaker-reenumerated"]),
+                     "the daemon restart and quick reconnection stay in one episode")
+        suite.expect(recovery.reconnectedWithinEpisode,
+                     "a brief route loss is identified so the pending-reconnect guard can clear")
+        suite.expect(!recovery.observe(uid: "speaker-reenumerated", now: start.addingTimeInterval(25),
+                                       previousAttempt: start.addingTimeInterval(3), selectedUIDs: ["speaker", "speaker-reenumerated"]),
+                     "a changed audio UID cannot bypass the global restart cooldown")
+        _ = recovery.observe(uid: nil, now: start.addingTimeInterval(100),
+                             previousAttempt: start.addingTimeInterval(3), selectedUIDs: ["speaker", "speaker-reenumerated"])
+        _ = recovery.observe(uid: nil, now: start.addingTimeInterval(701),
+                             previousAttempt: start.addingTimeInterval(3), selectedUIDs: ["speaker", "speaker-reenumerated"])
+        suite.expect(!recovery.observe(uid: "speaker", now: start.addingTimeInterval(750),
+                                       previousAttempt: start.addingTimeInterval(3), selectedUIDs: ["speaker", "speaker-reenumerated"]),
+                     "a real reconnect inside the persistent cooldown is suppressed")
+        _ = recovery.observe(uid: nil, now: start.addingTimeInterval(800),
+                             previousAttempt: start.addingTimeInterval(3), selectedUIDs: ["speaker", "speaker-reenumerated"])
+        _ = recovery.observe(uid: nil, now: start.addingTimeInterval(1500),
+                             previousAttempt: start.addingTimeInterval(3), selectedUIDs: ["speaker", "speaker-reenumerated"])
+        suite.expect(recovery.observe(uid: "speaker", now: start.addingTimeInterval(1900),
+                                      previousAttempt: start.addingTimeInterval(3), selectedUIDs: ["speaker", "speaker-reenumerated"]),
+                     "a later separate connection can recover again")
+        var relaunchedRecovery = BluetoothAudioRecoveryPolicy()
+        suite.expect(!relaunchedRecovery.observe(uid: "speaker", now: start.addingTimeInterval(30),
+                                                 previousAttempt: start.addingTimeInterval(3), selectedUIDs: ["speaker", "speaker-reenumerated"]),
+                     "an already-connected speaker does not restart Bluetooth on app launch")
+        suite.expect((registeredDefaults[DefaultsKey.bluetoothAudioRecoveryDevices] as? [String: String])?.isEmpty == true,
+                     "upgrading never opts any speaker into automatic Bluetooth restarts")
+        suite.expect(SettingsBackupSupport.exportKeys().contains(DefaultsKey.bluetoothAudioRecoveryDevices)
+            && !SettingsBackupSupport.keysToClear(whenImporting: [:]).contains(DefaultsKey.bluetoothAudioRecoveryDevices),
+            "backups preserve chosen speakers and legacy backups do not erase the selection")
+        var selective = BluetoothAudioRecoveryPolicy()
+        _ = selective.observe(uid: nil, now: start, previousAttempt: nil, selectedUIDs: ["chosen"])
+        suite.expect(!selective.observe(uid: "other", now: start.addingTimeInterval(3),
+            previousAttempt: nil, selectedUIDs: ["chosen"]), "unselected Bluetooth outputs never trigger a restart")
+        suite.expect(selective.observe(uid: "chosen", now: start.addingTimeInterval(6),
+            previousAttempt: nil, selectedUIDs: ["chosen"]), "switching from an unselected to a selected output can recover")
+        suite.expect(!selective.observe(uid: "second", now: start.addingTimeInterval(9),
+            previousAttempt: start.addingTimeInterval(6), selectedUIDs: ["chosen", "second"]),
+            "two selected devices still share the restart cooldown")
+        var emptySelection = BluetoothAudioRecoveryPolicy()
+        _ = emptySelection.observe(uid: nil, now: start, previousAttempt: nil, selectedUIDs: [])
+        suite.expect(!emptySelection.observe(uid: "speaker", now: start.addingTimeInterval(3),
+            previousAttempt: nil, selectedUIDs: []), "an empty selection disables recovery even when the switch is on")
+        suite.expect(!emptySelection.observe(uid: "speaker", now: start.addingTimeInterval(6),
+            previousAttempt: nil, selectedUIDs: ["speaker"]), "selecting an already-connected device does not immediately disconnect it")
+        var exactMatch = BluetoothAudioRecoveryPolicy()
+        _ = exactMatch.observe(uid: nil, now: start, previousAttempt: nil, selectedUIDs: ["speaker"])
+        suite.expect(!exactMatch.observe(uid: "speaker-other", now: start.addingTimeInterval(3),
+            previousAttempt: nil, selectedUIDs: ["speaker"]), "device identity uses exact UIDs instead of partial names")
         suite.expect(registeredDefaults[DefaultsKey.musicBlockEnabled] as? Bool == false,
                "blocking the music app from launching is opt-in")
         suite.expect(registeredDefaults[DefaultsKey.musicBlockReplacementPath] as? String == "",
@@ -466,6 +532,12 @@ enum AppManagementFeatureTests {
         suite.expect(Bundle(url: wrappedApp)?.bundleIdentifier == "com.vendor.wrapped"
                && UninstallerSupport.selection(for: wrappedApp) == nil,
                "a bundle with a valid identifier but no Contents/Info.plist is refused")
+        // A tool or helper inside another app's bundle belongs to that app:
+        // removing it alone would break the app it ships in.
+        let hostedApp = selectionBundle("Host.app/Contents/Applications/Tool.app", bundleID: "com.vendor.host.tool")
+        suite.expect(Bundle(url: hostedApp)?.bundleIdentifier == "com.vendor.host.tool"
+               && UninstallerSupport.selection(for: hostedApp) == nil,
+               "an app inside another app's bundle is refused")
         let listedApps = [editorApp, appleEditorApp, bareApp, wrappedApp].map {
             InstalledApps.InstalledApp(id: $0.standardizedFileURL.path, name: $0.lastPathComponent,
                                       bundleID: nil, url: $0, isSystem: false)

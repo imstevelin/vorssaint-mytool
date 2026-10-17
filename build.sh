@@ -43,16 +43,16 @@ for arg in "$@"; do
 done
 
 if (( DEV )); then
-    APP_NAME="Vorssaint (Developer)"
-    EXECUTABLE="VorssaintDeveloper"
-    APP_BUNDLE_ID="com.vorssaint.utils.dev"
+    APP_NAME="實用小工具 (Developer)"
+    EXECUTABLE="VorssaintImstevelinDeveloper"
+    APP_BUNDLE_ID="com.imstevelin.vorssaint-imstevelin.dev"
     BUILD_VARIANT_FLAGS=(-D VORSSAINT_DEVELOPMENT)
     APP_OPTIMIZATION_FLAGS=(-Onone)
     BUILD_CONFIGURATION="debug"
 else
-    APP_NAME="Vorssaint"
-    EXECUTABLE="Vorssaint"
-    APP_BUNDLE_ID="com.vorssaint.utils"
+    APP_NAME="實用小工具"
+    EXECUTABLE="VorssaintImstevelin"
+    APP_BUNDLE_ID="com.imstevelin.vorssaint-imstevelin"
     BUILD_VARIANT_FLAGS=()
     APP_OPTIMIZATION_FLAGS=(-O)
     BUILD_CONFIGURATION="release"
@@ -64,11 +64,11 @@ NOW_PLAYING_ADAPTER_ID="$APP_BUNDLE_ID.now-playing"
 NOW_PLAYING_ADAPTER="libVorssaintNowPlaying.dylib"
 TARGET="arm64-apple-macosx14.0"
 ENTITLEMENTS="Resources/Vorssaint.entitlements"
-LEGACY_IDENTITY="Vorssaint Utils Signing"
+LEGACY_IDENTITY=""
 
 developer_id_identity() {
     security find-identity -v -p codesigning 2>/dev/null \
-        | grep 'Developer ID Application' \
+        | grep -E 'Developer ID Application|Apple Development:' \
         | head -1 \
         | sed -E 's/.*"(.*)".*/\1/' || true
 }
@@ -100,7 +100,7 @@ legacy_identity_installed() {
 # offline and idempotent. Gating on the install rather than the variant keeps
 # this off CI, where neither ci.yml nor release.yml passes --install.
 if (( DEV || INSTALL )) && [[ -z "$(developer_id_identity)" ]] \
-    && ! legacy_identity_installed; then
+    && [[ -n "$LEGACY_IDENTITY" ]] && ! legacy_identity_installed; then
     echo "▸ No signing identity installed; creating the stable local one…"
     if ! ./Tools/setup-signing.sh; then
         echo "  ⚠ Tools/setup-signing.sh failed; signing ad-hoc instead." >&2
@@ -118,7 +118,7 @@ codesign_with_timestamp_retry() {
             return 0
         fi
         if (( attempt < 3 )); then
-            echo "  Developer ID signing failed; retrying ($((attempt + 1))/3)"
+            echo "  Apple code signing failed; retrying ($((attempt + 1))/3)"
             sleep "$attempt"
         fi
     done
@@ -160,12 +160,12 @@ finalize_installed_bundle_after_child() {
     sleep 3
     if [[ -n "$devid" ]]; then
         [[ -f "$helper" ]] && codesign_with_timestamp_retry --force --strip-disallowed-xattrs \
-            --options runtime --timestamp --identifier "$FAN_HELPER_ID" --sign "$devid" "$helper"
+            --options runtime --timestamp=none --identifier "$FAN_HELPER_ID" --sign "$devid" "$helper"
         [[ -f "$adapter" ]] && codesign_with_timestamp_retry --force --strip-disallowed-xattrs \
-            --options runtime --timestamp --identifier "$NOW_PLAYING_ADAPTER_ID" --sign "$devid" "$adapter"
-        codesign_with_timestamp_retry --force --strip-disallowed-xattrs --options runtime --timestamp \
+            --options runtime --timestamp=none --identifier "$NOW_PLAYING_ADAPTER_ID" --sign "$devid" "$adapter"
+        codesign_with_timestamp_retry --force --strip-disallowed-xattrs --options runtime --timestamp=none \
             --entitlements "$ENTITLEMENTS" --sign "$devid" "$bundle"
-    elif legacy_identity_installed; then
+    elif [[ -n "$LEGACY_IDENTITY" ]] && legacy_identity_installed; then
         [[ -f "$helper" ]] && /usr/bin/codesign --force --strip-disallowed-xattrs \
             --identifier "$FAN_HELPER_ID" --sign "$LEGACY_IDENTITY" "$helper"
         [[ -f "$adapter" ]] && /usr/bin/codesign --force --strip-disallowed-xattrs \
@@ -251,6 +251,7 @@ if (( TEST )); then
     mkdir -p "$TEST_OBJECT_DIR"
     TEST_SOURCES=(
         Sources/Vorssaint/Services/Media/MediaSupport.swift
+        Sources/Vorssaint/Services/Media/MediaVideoTargetEncoder.swift
         Sources/Vorssaint/Core/QuitProtectionSupport.swift
         Sources/Vorssaint/Core/QuitProtectionStrings.swift
         Sources/Vorssaint/Core/Defaults.swift
@@ -320,6 +321,7 @@ if (( TEST )); then
         Sources/Vorssaint/Core/FeatureHubStrings.swift
         Sources/Vorssaint/Core/ShortcutSettingsStrings.swift
         Sources/Vorssaint/Core/SettingsBackupSupport.swift
+        Sources/Vorssaint/Core/ForkSettingsMigration.swift
         Sources/Vorssaint/Core/BackupStrings.swift
         Sources/Vorssaint/Core/SnippetStrings.swift
         Sources/Vorssaint/Core/AlertSoundStrings.swift
@@ -370,12 +372,15 @@ if (( TEST )); then
         Sources/Vorssaint/Services/Recorder/RecorderImageRenderer.swift
         Sources/Vorssaint/Services/Recorder/RecorderExporter.swift
         Sources/Vorssaint/Services/Recorder/RecorderGIFClipboard.swift
+        Sources/Vorssaint/Services/Recorder/RecorderGIFWriter.swift
+        Sources/Vorssaint/Services/Recorder/RecorderGIFWorkspace.swift
         Sources/Vorssaint/Services/Recorder/RecorderComposition.swift
         Sources/Vorssaint/Services/Recorder/RecordingSharingSupport.swift
         Sources/Vorssaint/Services/PrivateFileStore.swift
         Sources/Vorssaint/Services/Recorder/RecorderTakeStore.swift
         Sources/Vorssaint/Services/Recorder/RecorderPresetImageStore.swift
         Sources/Vorssaint/Services/Recorder/RecorderMotion.swift
+        Sources/Vorssaint/Services/Recorder/RecorderPointerSpool.swift
         Sources/Vorssaint/Services/Recorder/RecorderPointerTrack.swift
         Sources/Vorssaint/Services/Recorder/RecorderTypingTrack.swift
         Sources/Vorssaint/Services/Recorder/RecorderTimeline.swift
@@ -531,6 +536,12 @@ if (( TEST )); then
         Sources/Vorssaint/Services/Metrics/TemperatureSensorSelector.swift
         Sources/Vorssaint/Services/Metrics/SustainedAlertGate.swift
         Sources/Vorssaint/Services/WindowLayout/WindowLayoutSupport.swift
+        Sources/Vorssaint/Services/Switcher/AXWindowResolver.swift
+        Sources/Vorssaint/Services/WindowLayout/DisplayWindowAXCache.swift
+        Sources/Vorssaint/Services/WindowServerSnapshot.swift
+        Sources/Vorssaint/Services/WindowLayout/DisplayWindowProfileStore.swift
+        Sources/Vorssaint/Services/WindowLayout/DisplayWindowMemorySupport.swift
+        Sources/Vorssaint/Core/DisplayWindowMemoryStrings.swift
         Sources/Vorssaint/Services/WindowLayout/WindowGestureSupport.swift
         Sources/Vorssaint/Core/WindowDirectionalStrings.swift
         Sources/Vorssaint/Core/PointerDisplayStrings.swift
@@ -540,6 +551,7 @@ if (( TEST )); then
         Sources/Vorssaint/Services/CleaningMode/CleaningMouseReleaseGate.swift
         Sources/Vorssaint/Services/Display/ExtraBrightnessSupport.swift
         Sources/Vorssaint/Services/Display/BrightnessSupport.swift
+        Sources/Vorssaint/Services/Display/DisplayKeyRoutingSupport.swift
         Sources/Vorssaint/Services/Display/LidDimmingSupport.swift
         Sources/Vorssaint/Services/Cleaner/CleanerSupport.swift
         Sources/Vorssaint/Services/Cleaner/CleanerPolicy.swift
@@ -568,8 +580,22 @@ if (( TEST )); then
     exit $test_status
 fi
 
+echo "▸ Compiling virtual display bridge…"
+mkdir -p build/objects/VirtualDisplayBridge
+clang -c -fblocks -fno-objc-arc -target "$TARGET" -isysroot "$SDK" \
+    -I Sources/VirtualDisplayBridge/include Sources/VirtualDisplayBridge/VirtualDisplayBridge.m \
+    -o build/objects/VirtualDisplayBridge/VirtualDisplayBridge.o
+swiftc -O -target "$TARGET" -sdk "$SDK" "${SDK_COMPAT_FLAGS[@]}" \
+    Sources/DisplayRecoverySupport/DisplayRecoverySnapshot.swift Sources/DisplayRecoveryHelper/main.swift \
+    -o build/objects/VirtualDisplayBridge/DisplayRecoveryHelper
+
+swiftc -O -target "$TARGET" -sdk "$SDK" "${SDK_COMPAT_FLAGS[@]}" \
+    -I Sources/VirtualDisplayBridge/include build/objects/VirtualDisplayBridge/VirtualDisplayBridge.o \
+    Sources/DisplayRecoverySupport/DisplayRecoverySnapshot.swift Sources/VirtualDisplayHost/main.swift \
+    -o build/objects/VirtualDisplayBridge/VirtualDisplayHost
+
 echo "▸ Compiling ($BUILD_CONFIGURATION) against $(basename "$SDK")…"
-APP_SOURCES=(Sources/Vorssaint/**/*.swift)
+APP_SOURCES=(Sources/Vorssaint/**/*.swift Sources/DisplayRecoverySupport/*.swift)
 if (( ! DEV )); then
     # A release starts from an empty build directory, so nothing an earlier
     # build left behind (an old icon catalog, a staged bundle) can reach it.
@@ -589,6 +615,7 @@ swiftc "${APP_OPTIMIZATION_FLAGS[@]}" -incremental -enable-batch-mode -j "$(sysc
     -output-file-map "$APP_OUTPUT_FILE_MAP" \
     -target "$TARGET" -sdk "$SDK" "${SDK_COMPAT_FLAGS[@]}" "${VM_STATISTICS_COMPAT_FLAGS[@]}" "${HID_EVENT_SYSTEM_FLAGS[@]}" \
     "${BUILD_VARIANT_FLAGS[@]}" \
+    -I Sources/VirtualDisplayBridge/include build/objects/VirtualDisplayBridge/VirtualDisplayBridge.o \
     "${APP_SOURCES[@]}" -o "build/$EXECUTABLE"
 
 echo "▸ Compiling protected fan helper…"
@@ -613,43 +640,18 @@ swiftc -O -target "$TARGET" -sdk "$SDK" "${SDK_COMPAT_FLAGS[@]}" -emit-library \
     -o "build/$NOW_PLAYING_ADAPTER"
 
 echo "▸ Generating app icon…"
-swift Tools/MakeIcon.swift build/AppIcon.iconset
+./Tools/make-fork-icon.sh
 xattr -c -r build/AppIcon.iconset build/AppIcon.icns build/MenuBarIcon.png build/MenuBarIcon@2x.png build/BrandMark.png 2>/dev/null || true
-ACTOOL_BIN="$(xcrun --find actool 2>/dev/null || true)"
-ICON_TMP="$(mktemp -d)"
-ADAPTIVE_SKIP=""
-if [[ -z "$ACTOOL_BIN" ]]; then
-    ADAPTIVE_SKIP="actool not found (adaptive icons need Xcode 26+)"
-else
-    echo "▸ Compiling adaptive icon catalog…"
-    # actool crashes on File Provider-synced paths, so compile a local copy.
-    ditto "Resources/Brand/AppIcon.icon" "$ICON_TMP/AppIcon.icon"
-    # Xcode 27 beta actool requires the --compile target directory to already exist.
-    mkdir -p "$ICON_TMP/catalog"
-    if "$ACTOOL_BIN" "$ICON_TMP/AppIcon.icon" \
-            --compile "$ICON_TMP/catalog" \
-            --app-icon AppIcon \
-            --platform macosx \
-            --target-device mac \
-            --minimum-deployment-target 14.0 \
-            --enable-on-demand-resources NO \
-            --output-partial-info-plist "$ICON_TMP/partial-info.plist" \
-            >"$ICON_TMP/actool.log" 2>&1 && [[ -s "$ICON_TMP/catalog/Assets.car" ]]; then
-        mv "$ICON_TMP/catalog/Assets.car" build/Assets.car
-    else
-        ADAPTIVE_SKIP="actool could not compile the catalog"
-    fi
-fi
-if [[ -n "$ADAPTIVE_SKIP" ]]; then
-    cp "$ICON_TMP/actool.log" build/actool-failure.log 2>/dev/null || true
-    echo "  adaptive icon skipped: $ADAPTIVE_SKIP (Dock falls back to AppIcon.icns)"
-fi
 echo "▸ Assembling and signing bundle…"
 STAGE_TMP="$(mktemp -d)"
 STAGE="$STAGE_TMP/$APP_NAME.app"
 mkdir -p "$STAGE/Contents/MacOS" "$STAGE/Contents/Resources" \
     "$STAGE/Contents/Library/LaunchDaemons" "$STAGE/Contents/Library/LaunchServices"
 cp "build/$EXECUTABLE" "$STAGE/Contents/MacOS/$EXECUTABLE"
+mkdir -p "$STAGE/Contents/Helpers" "$STAGE/Contents/Resources/ThirdParty"
+cp build/objects/VirtualDisplayBridge/DisplayRecoveryHelper "$STAGE/Contents/Helpers/DisplayRecoveryHelper"
+cp build/objects/VirtualDisplayBridge/VirtualDisplayHost "$STAGE/Contents/Helpers/VirtualDisplayHost"
+cp ThirdParty/HiDPIScaler-LICENSE ThirdParty/MonitorControl-LICENSE "$STAGE/Contents/Resources/ThirdParty/"
 cp "build/$FAN_HELPER_ID" "$STAGE/Contents/Library/LaunchServices/$FAN_HELPER_ID"
 mkdir -p "$STAGE/Contents/Frameworks"
 cp "build/$NOW_PLAYING_ADAPTER" "$STAGE/Contents/Frameworks/$NOW_PLAYING_ADAPTER"
@@ -658,13 +660,12 @@ cp Resources/agent-prices.json "$STAGE/Contents/Resources/agent-prices.json"
 cp Resources/com.vorssaint.utils.fan-control.plist \
     "$STAGE/Contents/Library/LaunchDaemons/$FAN_HELPER_ID.plist"
 cp Resources/Info.plist "$STAGE/Contents/Info.plist"
-cp CHANGELOG.md "$STAGE/Contents/Resources/CHANGELOG.md"
+cp FORK_RELEASE.md "$STAGE/Contents/Resources/CHANGELOG.md"
 for lproj in Resources/*.lproj(N); do
     cp -R "$lproj" "$STAGE/Contents/Resources/"
 done
-if (( DEV )); then
-    # A distinct identity so the Developer build installs and runs next to the
-    # official app, with its own permissions, preferences and login item.
+# The fork and its Developer build have separate identities and coexist with
+# the upstream app, with their own permissions, preferences and login items.
     /usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier $APP_BUNDLE_ID" "$STAGE/Contents/Info.plist"
     /usr/libexec/PlistBuddy -c "Set :CFBundleName $APP_NAME" "$STAGE/Contents/Info.plist"
     /usr/libexec/PlistBuddy -c "Set :CFBundleDisplayName $APP_NAME" "$STAGE/Contents/Info.plist"
@@ -674,6 +675,7 @@ if (( DEV )); then
     /usr/libexec/PlistBuddy -c "Set :BundleProgram Contents/Library/LaunchServices/$FAN_HELPER_ID" "$FAN_PLIST"
     /usr/libexec/PlistBuddy -c "Delete :MachServices:com.vorssaint.utils.fan-control" "$FAN_PLIST"
     /usr/libexec/PlistBuddy -c "Add :MachServices:$FAN_HELPER_ID bool true" "$FAN_PLIST"
+if (( DEV )); then
     # Stamp the source commit + build time so the running dev app shows (in About)
     # exactly which code it was compiled from. Lets you verify it matches HEAD before
     # testing, instead of unknowingly running a stale build. Dev-only; never shipped.
@@ -726,9 +728,9 @@ DEVID="$(developer_id_identity)"
 codesign_app() {
     local target="$1"
     if [[ -n "$DEVID" ]]; then
-        codesign_with_timestamp_retry --force --strip-disallowed-xattrs --options runtime --timestamp \
+        codesign_with_timestamp_retry --force --strip-disallowed-xattrs --options runtime --timestamp=none \
             --entitlements "$ENTITLEMENTS" --sign "$DEVID" "$target"
-    elif legacy_identity_installed; then
+    elif [[ -n "$LEGACY_IDENTITY" ]] && legacy_identity_installed; then
         codesign --force --strip-disallowed-xattrs --sign "$LEGACY_IDENTITY" "$target"
     else
         codesign --force --strip-disallowed-xattrs --sign - "$target"
@@ -738,9 +740,9 @@ codesign_app() {
 codesign_fan_helper() {
     local target="$1"
     if [[ -n "$DEVID" ]]; then
-        codesign_with_timestamp_retry --force --strip-disallowed-xattrs --options runtime --timestamp \
+        codesign_with_timestamp_retry --force --strip-disallowed-xattrs --options runtime --timestamp=none \
             --identifier "$FAN_HELPER_ID" --sign "$DEVID" "$target"
-    elif legacy_identity_installed; then
+    elif [[ -n "$LEGACY_IDENTITY" ]] && legacy_identity_installed; then
         codesign --force --strip-disallowed-xattrs --identifier "$FAN_HELPER_ID" \
             --sign "$LEGACY_IDENTITY" "$target"
     else
@@ -751,9 +753,9 @@ codesign_fan_helper() {
 codesign_now_playing_adapter() {
     local target="$1"
     if [[ -n "$DEVID" ]]; then
-        codesign_with_timestamp_retry --force --strip-disallowed-xattrs --options runtime --timestamp \
+        codesign_with_timestamp_retry --force --strip-disallowed-xattrs --options runtime --timestamp=none \
             --identifier "$NOW_PLAYING_ADAPTER_ID" --sign "$DEVID" "$target"
-    elif legacy_identity_installed; then
+    elif [[ -n "$LEGACY_IDENTITY" ]] && legacy_identity_installed; then
         codesign --force --strip-disallowed-xattrs --identifier "$NOW_PLAYING_ADAPTER_ID" \
             --sign "$LEGACY_IDENTITY" "$target"
     else
@@ -763,13 +765,15 @@ codesign_now_playing_adapter() {
 
 sign_bundle() {
     local bundle="$1"
+    codesign_app "$bundle/Contents/Helpers/DisplayRecoveryHelper"
+    codesign_app "$bundle/Contents/Helpers/VirtualDisplayHost"
     local executable="$bundle/Contents/MacOS/$EXECUTABLE"
     local helper="$bundle/Contents/Library/LaunchServices/$FAN_HELPER_ID"
     local adapter="$bundle/Contents/Frameworks/$NOW_PLAYING_ADAPTER"
 
     if [[ -n "$DEVID" ]]; then
-        echo "  signing with Developer ID (hardened runtime): $DEVID"
-    elif legacy_identity_installed; then
+        echo "  signing with Apple identity (hardened runtime): $DEVID"
+    elif [[ -n "$LEGACY_IDENTITY" ]] && legacy_identity_installed; then
         echo "  signing with legacy self-signed identity: $LEGACY_IDENTITY"
     else
         echo "  signing ad-hoc (no identity installed — run Tools/setup-signing.sh)"
@@ -878,18 +882,6 @@ fi
 if (( INSTALL )); then
     echo "▸ Installing into /Applications…"
     stop_process "$EXECUTABLE"
-    # Only an official install replaces the pre-rename official apps. The
-    # Developer variant must coexist with them just as it does with Vorssaint.
-    if (( ! DEV )); then
-        for legacy in "Vorss:Vorss" "Vorssaint Utils:VorssaintUtils"; do
-            name="${legacy%%:*}"; proc="${legacy##*:}"
-            if [[ -d "/Applications/$name.app" ]]; then
-                stop_process "$proc"
-                rm -rf "/Applications/$name.app"
-                echo "  (legacy $name.app removed)"
-            fi
-        done
-    fi
     INSTALL_DEST="/Applications/$APP_NAME.app"
     rm -rf "$INSTALL_DEST"
     ditto --noextattr --noqtn "$STAGE" "$INSTALL_DEST"

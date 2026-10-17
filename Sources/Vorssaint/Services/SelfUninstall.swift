@@ -122,6 +122,10 @@ enum SelfUninstall {
                     // Do not clear the launch choice while a failed reset
                     // could still leave this app installed.
                     detachLoginItem()
+                    DispatchQueue.main.sync {
+                        DisplayWindowMemoryService.shared.prepareForRemoval()
+                        AgentUsageService.shared.prepareForRemoval()
+                    }
                     removePreferences()
                     DispatchQueue.main.async { trashOwnBundleAndQuit() }
                 }
@@ -153,6 +157,7 @@ enum SelfUninstall {
         MouseButtonShortcutService.shared.suspend()
         WindowMaximizer.shared.stop()
         WindowLayoutService.shared.suspend()
+        DisplayWindowMemoryService.shared.suspend()
         PointerDisplayService.shared.suspend()
         AppSwitcher.shared.suspend()
         DockPreviewService.shared.stop()
@@ -237,8 +242,15 @@ enum SelfUninstall {
     }
 
     private static func removeSudoersRuleIfPresent(then: @escaping (Bool) -> Void) {
-        guard Sudoers.ruleFilesPresent || Sudoers.isConfigured() else { then(true); return }
-        Sudoers.remove(completion: then)            // shows the admin password prompt
+        let removeBluetoothRule: (Bool) -> Void = { firstRemoved in
+            guard firstRemoved else { then(false); return }
+            BluetoothAudioRecoveryService.remove(completion: then)
+        }
+        guard Sudoers.ruleFilesPresent || Sudoers.isConfigured() else {
+            removeBluetoothRule(true)
+            return
+        }
+        Sudoers.remove(completion: removeBluetoothRule)
     }
 
     /// `tccutil reset All <bundle id>` clears Accessibility, Screen Recording,

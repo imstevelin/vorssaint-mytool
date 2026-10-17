@@ -707,7 +707,8 @@ enum AgentLogReader {
     /// Log files changed since `horizon`, newest last so live turns settle
     /// on the most recent state. Subagents come after every session, so the
     /// turn each one works for already stands when its responses are read.
-    static func discover(_ roots: [AgentLogRoot], since horizon: Date) -> [(path: String, provider: AgentProvider)] {
+    static func discover(_ roots: [AgentLogRoot], since horizon: Date,
+                         shouldContinue: () -> Bool = { true }) -> [(path: String, provider: AgentProvider)] {
         var found: [(path: String, provider: AgentProvider, modified: Date, subagent: Bool)] = []
         let keys: [URLResourceKey] = [.contentModificationDateKey, .isRegularFileKey]
         func include(_ url: URL, from root: AgentLogRoot) {
@@ -718,6 +719,7 @@ enum AgentLogReader {
             found.append((url.path, root.provider, modified, subagent))
         }
         for root in roots where root.exists {
+            guard shouldContinue() else { return [] }
             // OpenCode keeps its database beside the snapshots, clones and
             // logs of its data folder, which are never walked.
             if root.provider == .opencode {
@@ -734,13 +736,17 @@ enum AgentLogReader {
             if root.provider == .copilot {
                 let sessions = (try? FileManager.default.contentsOfDirectory(
                     at: root.url, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles])) ?? []
-                for session in sessions { include(session.appending(path: "events.jsonl"), from: root) }
+                for session in sessions {
+                    guard shouldContinue() else { return [] }
+                    include(session.appending(path: "events.jsonl"), from: root)
+                }
                 continue
             }
             guard let enumerator = FileManager.default.enumerator(at: root.url, includingPropertiesForKeys: keys,
                                                                   options: [.skipsPackageDescendants]) else { continue }
-            for case let url as URL in enumerator where url.path.hasSuffix(".jsonl") {
-                include(url, from: root)
+            for case let url as URL in enumerator {
+                guard shouldContinue() else { return [] }
+                if url.path.hasSuffix(".jsonl") { include(url, from: root) }
             }
         }
         return found.sorted { $0.subagent != $1.subagent ? $1.subagent : $0.modified < $1.modified }

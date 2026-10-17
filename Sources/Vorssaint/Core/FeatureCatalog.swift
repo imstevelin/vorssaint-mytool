@@ -75,6 +75,8 @@ extension AppFeature {
         switch self {
         case .windowLayout:
             return boolFor(DefaultsKey.windowLayoutShortcutsEnabled)
+                || boolFor(DefaultsKey.windowRememberSizes)
+                || boolFor(DefaultsKey.windowRestoreDisplayLayout)
                 || boolFor(DefaultsKey.windowGestureEnabled)
                 || (boolFor(DefaultsKey.windowEdgeSnapEnabled)
                     && !WindowEdgeSnapZone.enabledZones(
@@ -302,7 +304,9 @@ extension AppFeature {
     /// first song, so only the user's own switch turns it on.
     private var initialEnableKeys: [String] {
         switch self {
-        case .windowLayout: return [DefaultsKey.windowLayoutShortcutsEnabled]
+        case .windowLayout: return [DefaultsKey.windowLayoutShortcutsEnabled,
+                                    DefaultsKey.windowRememberSizes,
+                                    DefaultsKey.windowRestoreDisplayLayout]
         case .audioPriority: return enabledKeys
         case .notchLiveEqualizer: return []
         default: return enabledKeys.first.map { [$0] } ?? []
@@ -315,7 +319,8 @@ extension AppFeature {
         let choices = self == .windowLayout
             ? [DefaultsKey.windowLayoutShortcutsEnabled, DefaultsKey.windowDirectionalEnabled,
                DefaultsKey.pointerDisplayEnabled, DefaultsKey.windowEdgeSnapEnabled,
-               DefaultsKey.windowGestureEnabled]
+               DefaultsKey.windowGestureEnabled, DefaultsKey.windowRememberSizes,
+               DefaultsKey.windowRestoreDisplayLayout]
             : enabledKeys
         guard !choices.contains(where: { savedValues[$0] != nil }) else { return }
         for key in initialEnableKeys {
