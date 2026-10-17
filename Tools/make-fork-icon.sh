@@ -1,5 +1,6 @@
 #!/bin/zsh
 set -euo pipefail
+swift Tools/MakeForkIcon.swift
 mkdir -p build/AppIcon.iconset
 for size in 16 32 128 256 512; do
     sips -s format png -z "$size" "$size" Resources/ForkBrand/AppIcon.png \

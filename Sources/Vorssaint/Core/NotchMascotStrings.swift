@@ -67,8 +67,42 @@ struct NotchMascotStrings {
     /// More words a search finds its page by.
     let keywords: String
 
-    func style(_ style: NotchMascotStyle) -> String {
-        style == .robot ? robot : minimal
+    func style(_ style: NotchMascotStyle, language: AppLanguage = .enUS) -> String {
+        if style == .minimal { return minimal }
+        if style == .robot { return robot }
+        let names: [String]
+        switch language {
+        case .zhTW, .zhHK: names = ["小貓", "小狗", "小熊", "小狐狸", "小兔"]
+        case .zhHans: names = ["小猫", "小狗", "小熊", "小狐狸", "小兔"]
+        case .ja: names = ["ねこ", "いぬ", "くま", "きつね", "うさぎ"]
+        case .ko: names = ["고양이", "강아지", "곰", "여우", "토끼"]
+        case .fr: names = ["Chat", "Chien", "Ourson", "Renard", "Lapin"]
+        case .de: names = ["Katze", "Hund", "Bär", "Fuchs", "Hase"]
+        case .es: names = ["Gato", "Perro", "Oso", "Zorro", "Conejo"]
+        case .it: names = ["Gatto", "Cane", "Orso", "Volpe", "Coniglio"]
+        case .ptBR: names = ["Gato", "Cão", "Urso", "Raposa", "Coelho"]
+        case .ru: names = ["Кот", "Щенок", "Медведь", "Лиса", "Кролик"]
+        case .uk: names = ["Кіт", "Песик", "Ведмідь", "Лис", "Кролик"]
+        case .tr: names = ["Kedi", "Köpek", "Ayı", "Tilki", "Tavşan"]
+        case .sk: names = ["Mačka", "Pes", "Medveď", "Líška", "Zajac"]
+        case .enUS: names = ["Cat", "Dog", "Bear", "Fox", "Bunny"]
+        }
+        let index: Int
+        switch style { case .cat: index = 0; case .dog: index = 1; case .bear: index = 2; case .fox: index = 3; default: index = 4 }
+        return names[index]
+    }
+
+    func personality(_ style: NotchMascotStyle, language: AppLanguage) -> String {
+        let chinese = language == .zhTW || language == .zhHK || language == .zhHans
+        switch style {
+        case .minimal: return chinese ? "愛玩的小精靈：晃晃身體、四處探險，也會回頭邀你一起玩。" : "A playful little spirit: wiggles, explores and comes back to invite you along."
+        case .robot: return chinese ? "好奇的小機器人：掃描周圍、歪頭思考，再探出頭向你打招呼。" : "A curious robot: scans, tilts its head in thought and peeks out to say hello."
+        case .cat: return chinese ? "有點傲嬌的小貓：伸懶腰、動動耳朵，躲起來又悄悄探頭看你。" : "An independent cat: stretches, flicks its ears and sneaks back for another peek."
+        case .dog: return chinese ? "熱情的小狗：動動垂耳、開心蹦跳，常常停下來等你摸摸。" : "An affectionate puppy: wiggles its floppy ears, bounces and waits for a little attention."
+        case .bear: return chinese ? "溫柔的小熊：慢慢呼吸、舒服地伸展，悠閒地出來陪你一會兒。" : "A gentle bear: breathes slowly, stretches and takes its time keeping you company."
+        case .fox: return chinese ? "機靈的小狐狸：豎耳張望、假裝離開，忽然又回頭找你。" : "A clever fox: listens, looks around and pretends to leave before coming back for you."
+        case .bunny: return chinese ? "活潑的小兔：輕輕跳躍、抖抖耳朵，停下來好奇地看著你。" : "A lively bunny: makes little hops, twitches its ears and pauses for a curious look."
+        }
     }
 
     func shape(_ shape: NotchMascotShape) -> String {
@@ -158,13 +192,13 @@ extension FeatureStrings {
             reactions: "React to what happens",
             reactionsHint: "It comes out to react to music, timers, downloads, screenshots, the microphone, Keep awake and more.",
             hidesWhenIdle: "Hide when idle",
-            hidesWhenIdleHint: "After half a minute with nothing going on, it hops into the island and the island goes back to its usual size. Visits and reactions still bring it out.",
+            hidesWhenIdleHint: "After a minute with nothing going on, it hops into the island and the island goes back to its usual size. Visits and reactions still bring it out.",
             sayHi: "Say Hi", sayHiHint: "Plays a visit in the Dynamic Island now.",
             momentsTitle: "See how it reacts",
             visitMoment: "A visit", timerStarted: "Timer started", downloadFailed: "Download failed", unlocked: "Mac unlocked",
             petTip: "Rest the pointer on it to pet it. Left alone, it dozes off until you come back.",
             livesInIsland: "The companion lives in the Dynamic Island.",
-            keywords: "mascot pet buddy character")
+            keywords: "cat dog bear fox bunny 小貓 小狗 小熊 小狐狸 小兔 mascot pet buddy character")
         case .ptBR: return NotchMascotStrings(
             title: "Companheiro",
             hint: "Um amiguinho que mora no Dynamic Island. Descansa ali quando não há mais nada aparecendo e sai por cima de músicas e atividades para dar oi e reagir ao que acontece.",
@@ -191,7 +225,7 @@ extension FeatureStrings {
             visitMoment: "Uma visita", timerStarted: "Temporizador iniciado", downloadFailed: "Falha no download", unlocked: "Mac desbloqueado",
             petTip: "Deixe o ponteiro parado sobre ele para fazer carinho. Sozinho, ele cochila até você voltar.",
             livesInIsland: "O companheiro mora no Dynamic Island.",
-            keywords: "mascote bichinho amigo personagem")
+            keywords: "cat dog bear fox bunny 小貓 小狗 小熊 小狐狸 小兔 mascote bichinho amigo personagem")
         case .es: return NotchMascotStrings(
             title: "Compañero",
             hint: "Un amiguito que vive en el Dynamic Island. Descansa allí cuando no se muestra nada más y sale sobre la música y las actividades para saludar y reaccionar a lo que pasa.",
@@ -218,7 +252,7 @@ extension FeatureStrings {
             visitMoment: "Una visita", timerStarted: "Temporizador iniciado", downloadFailed: "Error en la descarga", unlocked: "Mac desbloqueado",
             petTip: "Deja el puntero quieto sobre él para acariciarlo. Si lo dejas solo, se duerme hasta que vuelvas.",
             livesInIsland: "El compañero vive en el Dynamic Island.",
-            keywords: "mascota amiguito personaje")
+            keywords: "cat dog bear fox bunny 小貓 小狗 小熊 小狐狸 小兔 mascota amiguito personaje")
         case .sk: return NotchMascotStrings(
             title: "Spoločník",
             hint: "Malý kamarát, ktorý býva v Dynamic Island. Odpočíva tam, keď sa nič iné nezobrazuje, a ponad hudbu a aktivity sa ukáže, aby pozdravil a zareagoval na to, čo sa deje.",
@@ -245,7 +279,7 @@ extension FeatureStrings {
             visitMoment: "Návšteva", timerStarted: "Časovač spustený", downloadFailed: "Sťahovanie zlyhalo", unlocked: "Mac odomknutý",
             petTip: "Nechajte na ňom chvíľu ukazovateľ a pohladkáte ho. Keď je sám, zdriemne si, kým sa nevrátite.",
             livesInIsland: "Spoločník býva v Dynamic Island.",
-            keywords: "maskot zvieratko kamarát postavička")
+            keywords: "cat dog bear fox bunny 小貓 小狗 小熊 小狐狸 小兔 maskot zvieratko kamarát postavička")
         case .de: return NotchMascotStrings(
             title: "Begleiter",
             hint: "Ein kleiner Freund, der im Dynamic Island wohnt. Er ruht dort, wenn sonst nichts angezeigt wird, und kommt über Musik und Aktivitäten hervor, um Hallo zu sagen und auf das Geschehen zu reagieren.",
@@ -272,7 +306,7 @@ extension FeatureStrings {
             visitMoment: "Ein Besuch", timerStarted: "Timer gestartet", downloadFailed: "Download fehlgeschlagen", unlocked: "Mac entsperrt",
             petTip: "Lass den Zeiger kurz auf ihm ruhen, um ihn zu streicheln. Allein döst er ein, bis du zurückkommst.",
             livesInIsland: "Der Begleiter wohnt im Dynamic Island.",
-            keywords: "Maskottchen Haustier Kumpel Figur")
+            keywords: "cat dog bear fox bunny 小貓 小狗 小熊 小狐狸 小兔 Maskottchen Haustier Kumpel Figur")
         case .fr: return NotchMascotStrings(
             title: "Compagnon",
             hint: "Un petit ami qui vit dans le Dynamic Island. Il s’y repose quand rien d’autre n’est affiché, et sort par-dessus la musique et les activités pour dire bonjour et réagir à ce qui se passe.",
@@ -299,7 +333,7 @@ extension FeatureStrings {
             visitMoment: "Une visite", timerStarted: "Minuteur lancé", downloadFailed: "Échec du téléchargement", unlocked: "Mac déverrouillé",
             petTip: "Laissez le pointeur posé sur lui pour le caresser. Seul, il s’assoupit jusqu’à votre retour.",
             livesInIsland: "Le compagnon vit dans le Dynamic Island.",
-            keywords: "mascotte animal copain personnage")
+            keywords: "cat dog bear fox bunny 小貓 小狗 小熊 小狐狸 小兔 mascotte animal copain personnage")
         case .it: return NotchMascotStrings(
             title: "Compagno",
             hint: "Un piccolo amico che vive nel Dynamic Island. Riposa lì quando non viene mostrato nient’altro ed esce sopra musica e attività per salutare e reagire a ciò che succede.",
@@ -326,7 +360,7 @@ extension FeatureStrings {
             visitMoment: "Una visita", timerStarted: "Timer avviato", downloadFailed: "Download non riuscito", unlocked: "Mac sbloccato",
             petTip: "Lascia il puntatore fermo su di lui per accarezzarlo. Da solo, si appisola finché non torni.",
             livesInIsland: "Il compagno vive nel Dynamic Island.",
-            keywords: "mascotte animaletto amico personaggio")
+            keywords: "cat dog bear fox bunny 小貓 小狗 小熊 小狐狸 小兔 mascotte animaletto amico personaggio")
         case .ru: return NotchMascotStrings(
             title: "Компаньон",
             hint: "Маленький друг, который живёт в Dynamic Island. Он отдыхает там, когда больше ничего не показано, и выходит поверх музыки и активностей, чтобы поздороваться и отреагировать на происходящее.",
@@ -353,7 +387,7 @@ extension FeatureStrings {
             visitMoment: "Визит", timerStarted: "Таймер запущен", downloadFailed: "Загрузка не удалась", unlocked: "Mac разблокирован",
             petTip: "Задержите на нём указатель, чтобы погладить. Оставшись один, он дремлет, пока вы не вернётесь.",
             livesInIsland: "Компаньон живёт в Dynamic Island.",
-            keywords: "маскот питомец приятель персонаж")
+            keywords: "cat dog bear fox bunny 小貓 小狗 小熊 小狐狸 小兔 маскот питомец приятель персонаж")
         case .tr: return NotchMascotStrings(
             title: "Arkadaş",
             hint: "Dynamic Island’da yaşayan küçük bir dost. Başka bir şey görünmediğinde orada dinlenir, merhaba demek ve olanlara tepki vermek için müziğin ve etkinliklerin üzerine çıkar.",
@@ -380,7 +414,7 @@ extension FeatureStrings {
             visitMoment: "Bir ziyaret", timerStarted: "Zamanlayıcı başladı", downloadFailed: "İndirme başarısız", unlocked: "Mac’in kilidi açıldı",
             petTip: "Sevmek için imleci bir an üzerinde tutun. Yalnız kalınca siz dönene kadar uyuklar.",
             livesInIsland: "Arkadaş Dynamic Island’da yaşar.",
-            keywords: "maskot evcil dost karakter")
+            keywords: "cat dog bear fox bunny 小貓 小狗 小熊 小狐狸 小兔 maskot evcil dost karakter")
         case .ja: return NotchMascotStrings(
             title: "コンパニオン",
             hint: "Dynamic Island に住む小さな友だちです。ほかに何も表示されていないときはそこで休み、音楽やアクティビティの上にも出てきて、あいさつしたり出来事に反応したりします。",
@@ -407,7 +441,7 @@ extension FeatureStrings {
             visitMoment: "訪問", timerStarted: "タイマー開始", downloadFailed: "ダウンロード失敗", unlocked: "Mac のロック解除",
             petTip: "ポインタをしばらく乗せるとなでられます。ひとりにすると、戻ってくるまでうたた寝します。",
             livesInIsland: "コンパニオンは Dynamic Island に住んでいます。",
-            keywords: "マスコット ペット 相棒 キャラクター")
+            keywords: "cat dog bear fox bunny 小貓 小狗 小熊 小狐狸 小兔 マスコット ペット 相棒 キャラクター")
         case .ko: return NotchMascotStrings(
             title: "컴패니언",
             hint: "Dynamic Island에 사는 작은 친구입니다. 다른 것이 표시되지 않을 때는 그곳에서 쉬고, 음악과 활동 위로도 나와 인사하고 일어난 일에 반응합니다.",
@@ -434,7 +468,7 @@ extension FeatureStrings {
             visitMoment: "방문", timerStarted: "타이머 시작", downloadFailed: "다운로드 실패", unlocked: "Mac 잠금 해제",
             petTip: "포인터를 잠시 올려 두면 쓰다듬을 수 있습니다. 혼자 두면 돌아올 때까지 꾸벅꾸벅 좁니다.",
             livesInIsland: "컴패니언은 Dynamic Island에 삽니다.",
-            keywords: "마스코트 펫 친구 캐릭터")
+            keywords: "cat dog bear fox bunny 小貓 小狗 小熊 小狐狸 小兔 마스코트 펫 친구 캐릭터")
         case .zhHans: return NotchMascotStrings(
             title: "小伙伴",
             hint: "住在Dynamic Island里的小伙伴。没有其他内容显示时，它就在那里休息，也会出现在音乐和活动上方打招呼，并对发生的事做出反应。",
@@ -461,7 +495,7 @@ extension FeatureStrings {
             visitMoment: "来访", timerStarted: "计时器已开始", downloadFailed: "下载失败", unlocked: "Mac 已解锁",
             petTip: "把指针在它身上停留片刻就能摸摸它。独自待着时，它会打盹，直到你回来。",
             livesInIsland: "小伙伴住在Dynamic Island里。",
-            keywords: "吉祥物 宠物 伙伴 角色")
+            keywords: "cat dog bear fox bunny 小貓 小狗 小熊 小狐狸 小兔 吉祥物 宠物 伙伴 角色")
         case .zhTW: return NotchMascotStrings(
             title: "小夥伴",
             hint: "住在Dynamic Island裡的小夥伴。沒有其他內容顯示時，它就在那裡休息，也會出現在音樂和活動上方打招呼，並對發生的事做出反應。",
@@ -482,13 +516,13 @@ extension FeatureStrings {
             reactions: "對發生的事做出反應",
             reactionsHint: "它會出來對音樂、計時器、下載、截圖、麥克風、保持喚醒等做出反應。",
             hidesWhenIdle: "閒置時隱藏",
-            hidesWhenIdleHint: "半分鐘內沒有任何動靜時，它會跳進動態島裡，動態島也恢復原本的大小。來訪和做出反應時，它仍會出來。",
+            hidesWhenIdleHint: "一分鐘內沒有任何動靜時，它會跳進動態島裡，動態島也恢復原本的大小。來訪和做出反應時，它仍會出來。",
             sayHi: "打個招呼", sayHiHint: "立即在Dynamic Island中播放一次來訪。",
             momentsTitle: "看看它的反應",
             visitMoment: "來訪", timerStarted: "計時器已開始", downloadFailed: "下載失敗", unlocked: "Mac 已解鎖",
             petTip: "把指標在它身上停留片刻就能摸摸它。獨自待著時，它會打盹，直到你回來。",
             livesInIsland: "小夥伴住在Dynamic Island裡。",
-            keywords: "吉祥物 寵物 夥伴 角色")
+            keywords: "cat dog bear fox bunny 小貓 小狗 小熊 小狐狸 小兔 吉祥物 寵物 夥伴 角色")
         case .zhHK: return NotchMascotStrings(
             title: "小夥伴",
             hint: "住在Dynamic Island裡的小夥伴。沒有其他內容顯示時，它就在那裡休息，也會出現在音樂和活動上方打招呼，並對發生的事作出反應。",
@@ -509,13 +543,13 @@ extension FeatureStrings {
             reactions: "對發生的事作出反應",
             reactionsHint: "它會出來對音樂、計時器、下載、截圖、麥克風、保持喚醒等作出反應。",
             hidesWhenIdle: "閒置時隱藏",
-            hidesWhenIdleHint: "半分鐘內沒有任何動靜時，它會跳進動態島裡，動態島也回復原本的大小。來訪和作出反應時，它仍會出來。",
+            hidesWhenIdleHint: "一分鐘內沒有任何動靜時，它會跳進動態島裡，動態島也回復原本的大小。來訪和作出反應時，它仍會出來。",
             sayHi: "打個招呼", sayHiHint: "立即在Dynamic Island中播放一次來訪。",
             momentsTitle: "看看它的反應",
             visitMoment: "來訪", timerStarted: "計時器已開始", downloadFailed: "下載失敗", unlocked: "Mac 已解鎖",
             petTip: "把指標在它身上停留片刻就能摸摸它。獨自待著時，它會打盹，直到你回來。",
             livesInIsland: "小夥伴住在Dynamic Island裡。",
-            keywords: "吉祥物 寵物 夥伴 角色")
+            keywords: "cat dog bear fox bunny 小貓 小狗 小熊 小狐狸 小兔 吉祥物 寵物 夥伴 角色")
         case .uk: return NotchMascotStrings(
             title: "Компаньйон",
             hint: "Маленький друг, який живе в Dynamic Island. Він відпочиває там, коли більше нічого не показано, і виходить поверх музики й активностей, щоб привітатися та відреагувати на те, що відбувається.",
@@ -542,7 +576,7 @@ extension FeatureStrings {
             visitMoment: "Візит", timerStarted: "Таймер запущено", downloadFailed: "Не вдалося завантажити", unlocked: "Mac розблоковано",
             petTip: "Затримайте на ньому вказівник, щоб погладити. Залишившись сам, він дрімає, доки ви не повернетеся.",
             livesInIsland: "Компаньйон живе в Dynamic Island.",
-            keywords: "маскот улюбленець приятель персонаж")
+            keywords: "cat dog bear fox bunny 小貓 小狗 小熊 小狐狸 小兔 маскот улюбленець приятель персонаж")
         }
     }
 }

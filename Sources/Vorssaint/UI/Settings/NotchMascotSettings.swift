@@ -20,7 +20,6 @@ struct NotchMascotSettings: View {
     @AppStorage(DefaultsKey.notchMascotHidesWhenIdle) private var hidesWhenIdle = true
     @AppStorage(DefaultsKey.notchMascotStyle) private var style = NotchMascotStyle.minimal.rawValue
     @AppStorage(DefaultsKey.notchMascotShape) private var shape = NotchMascotShape.ball.rawValue
-    @AppStorage(DefaultsKey.notchMascotPalette) private var palette = NotchMascotPalette.pearl.rawValue
     @AppStorage(DefaultsKey.notchMascotSide) private var side = NotchMascotSide.left.rawValue
     @AppStorage(DefaultsKey.notchMascotVisitFrequency) private var frequency = NotchMascotVisitFrequency.normal.rawValue
     @AppStorage(DefaultsKey.notchCommandBar) private var commandBar = true
@@ -33,7 +32,7 @@ struct NotchMascotSettings: View {
     private var look: NotchMascotLook {
         NotchMascotLook(style: NotchMascotStyle(rawValue: style) ?? .minimal,
                         shape: NotchMascotShape(rawValue: shape) ?? .ball,
-                        palette: NotchMascotPalette(rawValue: palette) ?? .pearl)
+                        palette: .pearl)
     }
 
     private var restingSide: NotchMascotSide { NotchMascotSide(rawValue: side) ?? .left }
@@ -114,9 +113,9 @@ struct NotchMascotSettings: View {
     private var appearance: some View {
         SettingsCard(title: text.appearance) {
             SettingsRow(symbol: "paintpalette", title: text.style) { EmptyView() }
-            HStack(spacing: 10) {
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 92), spacing: 10)], spacing: 10) {
                 ForEach(NotchMascotStyle.allCases) { item in
-                    NotchMascotChoiceTile(title: text.style(item), selected: look.style == item) {
+                    NotchMascotChoiceTile(title: text.style(item, language: l10n.language), selected: look.style == item) {
                         style = item.rawValue
                     } preview: {
                         NotchMascotView(look: NotchMascotLook(style: item, shape: look.shape, palette: look.palette),
@@ -128,6 +127,9 @@ struct NotchMascotSettings: View {
                 }
             }
             .padding(.leading, settingsRowTextInset)
+            Text(text.personality(look.style, language: l10n.language))
+                .font(.callout).foregroundStyle(.secondary)
+                .padding(.leading, settingsRowTextInset)
             if look.style == .minimal {
                 SettingsRow(symbol: "circle.square", title: text.shape) {
                     Text(text.shape(look.shape)).foregroundStyle(.secondary)
@@ -136,10 +138,7 @@ struct NotchMascotSettings: View {
                 shapes
                     .transition(.opacity)
             }
-            SettingsRow(symbol: "swatchpalette", title: text.color) {
-                Text(text.palette(look.palette)).foregroundStyle(.secondary)
-            }
-            swatches
+
         }
         .animation(animation, value: look.style)
     }
@@ -162,30 +161,6 @@ struct NotchMascotSettings: View {
                 .buttonStyle(.plain)
                 .help(text.shape(item))
                 .accessibilityLabel(text.shape(item))
-                .accessibilityAddTraits(selected ? .isSelected : [])
-                .animation(reduceMotion ? nil : .easeOut(duration: 0.15), value: selected)
-            }
-        }
-        .padding(.leading, settingsRowTextInset)
-    }
-
-    private var swatches: some View {
-        HStack(spacing: 8) {
-            ForEach(NotchMascotPalette.allCases) { item in
-                let selected = look.palette == item
-                Button { palette = item.rawValue } label: {
-                    Circle()
-                        .fill(LinearGradient(colors: [Color(cgColor: item.light.cgColor), Color(cgColor: item.shade.cgColor)],
-                                             startPoint: .top, endPoint: .bottom))
-                        .frame(width: 22, height: 22)
-                        .overlay(Circle().strokeBorder(Color.primary.opacity(0.15), lineWidth: 0.5))
-                        .padding(3)
-                        .overlay(Circle().strokeBorder(selected ? Color.accentColor : .clear, lineWidth: 2))
-                        .contentShape(Circle())
-                }
-                .buttonStyle(.plain)
-                .help(text.palette(item))
-                .accessibilityLabel(text.palette(item))
                 .accessibilityAddTraits(selected ? .isSelected : [])
                 .animation(reduceMotion ? nil : .easeOut(duration: 0.15), value: selected)
             }
@@ -285,6 +260,7 @@ private struct NotchMascotStageCard: View {
     @State private var lookWork: DispatchWorkItem?
     /// The next moment a click on the companion acts out.
     @State private var nextMoment = 0
+    @State private var lastPlay: NotchMascotPlay?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private static let reactions = NotchMascotMoment.allCases.filter { $0.reaction != nil }
@@ -408,7 +384,9 @@ private struct NotchMascotStageCard: View {
             react(reaction)
             length = reaction.length + 0.15
         } else {
-            length = startVisit(.lap, greeting: .wink)
+            let play = look.style.nextPlay(after: lastPlay)
+            lastPlay = play
+            length = startVisit(.play(play, exits: false), greeting: .wink)
         }
         guard let followUp = moment.followUp else {
             let work = DispatchWorkItem { playing = nil }

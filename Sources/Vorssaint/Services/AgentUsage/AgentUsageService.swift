@@ -101,9 +101,11 @@ final class AgentUsageService: ObservableObject {
     private var savedMark: Int?
     private var lastSave = Date.distantPast
 
+    private var removing = false
     private init() {}
 
     func syncWithPreferences() {
+        guard !removing else { return }
         guard NotchAgentSupport.isEnabled() else { stop(); return }
         let wanted = NotchAgentSupport.providers()
         // An agent turned off is no longer read at all, and one turned on is
@@ -156,7 +158,10 @@ final class AgentUsageService: ObservableObject {
         // A first read still going stops at its next chunk, so the wait
         // below is short.
         if running { cancellation.cancel() }
-        settleArchive(keeping: keeps && NotchAgentSupport.isEnabled())
+        let keeping = keeps && NotchAgentSupport.isEnabled()
+        // UI state stops immediately. Saving and teardown stay ordered ahead
+        // of any subsequent start on the same serial queue.
+        settleArchive(keeping: keeping)
         guard running else { return }
         running = false
         paused = false
@@ -240,7 +245,8 @@ final class AgentUsageService: ObservableObject {
             // Keep the loading state until all initial history has been read.
             let horizon = Date().addingTimeInterval(-Self.horizon)
             let roots = AgentLogRoot.all(home: home).filter { providers.contains($0.provider) }
-            let files = AgentLogReader.discover(roots, since: horizon)
+            let files = AgentLogReader.discover(roots, since: horizon, shouldContinue: { !cancellation.isCancelled })
+            guard !cancellation.isCancelled else { return }
             // Resumes where the last launch stopped, among the logs there now.
             if let saved = AgentUsageArchive.load(), saved.providers == providers {
                 let resumed = AgentUsageArchive.resume(saved, logs: Set(files.map(\.path)), since: horizon)
@@ -277,13 +283,26 @@ final class AgentUsageService: ObservableObject {
         }
     }
 
-    /// Saves progress, or removes it once the section is off, even what an
-    /// earlier launch saved. Quitting stops the service too and ends the
-    /// process right after, so this returns only once the file is settled.
-    /// Main thread.
-    private func settleArchive(keeping keeps: Bool) {
-        queue.sync {
-            if keeps { saveProgress() } else { AgentUsageArchive.remove() }
+    /// Termination is the only UI-thread barrier. Normal feature toggles
+    /// never wait for an in-progress history scan or archive write.
+    private func settleArchive(keeping keeps: Bool, wait: Bool = false) {
+        let settle = { [self] in
+            if keeps { self.saveProgress() } else { AgentUsageArchive.remove() }
+        }
+        if wait { queue.sync(execute: settle) }
+        else { queue.async(execute: settle) }
+    }
+
+    func prepareForRemoval() {
+        removing = true
+        stop(keepingProgress: false)
+        queue.sync {}
+    }
+
+    func flushProgressBeforeTermination() {
+        guard !removing else { return }
+        queue.sync { [self] in
+            if readerSession >= 0 { saveProgress() }
         }
     }
 

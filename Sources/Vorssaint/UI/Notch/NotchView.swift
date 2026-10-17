@@ -893,11 +893,9 @@ struct NotchRestingStrip: View {
             }
         }
         .foregroundStyle(.white.opacity(0.9))
-        // The strip stays in its band at the top: hover grows the island
-        // around it, and centring it in the taller shape dropped it half
-        // the growth in one frame.
+        // Keep the resting content and its companion centred in the current surface.
         .frame(height: geometry.stripHeight)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
         .contentShape(Rectangle())
         .accessibilityHidden(true)
     }

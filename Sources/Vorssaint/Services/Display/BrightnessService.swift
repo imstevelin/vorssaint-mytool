@@ -67,6 +67,19 @@ final class BrightnessService: ObservableObject {
                                     category: "display")
 
     @Published private(set) var displays: [BrightnessDisplay] = []
+    @Published private(set) var hardwareControls: [CGDirectDisplayID: DisplayHardwareState] = [:]
+    private struct HardwareRoute {
+        let service: CFTypeRef
+        let identity: String
+        let fingerprint: String
+    }
+    private var hardwareRoutes: [CGDirectDisplayID: HardwareRoute] = [:]
+    private var hardwareRequests: [String: DispatchWorkItem] = [:]
+    private var hardwareRevision: [String: UInt64] = [:]
+    private var hardwareConfirmed: [String: DisplayHardwareValue] = [:]
+    private var hardwareSequence: UInt64 = 0
+    private var audibleLevels: [String: UInt16] = [:]
+
     /// The displays that currently put a picture in front of a person, as the
     /// last rebuild found them. The panel decides from this snapshot instead
     /// of asking the display server itself: `canToggleDisplay` is read from a
@@ -457,6 +470,8 @@ final class BrightnessService: ObservableObject {
         syncKeyTap()
         syncKeyboardBrightnessHotkeys()
         syncDisplayBrightnessHotkeys()
+        VirtualHiDPIService.shared.syncWithPreferences()
+        AppVolumeMixer.shared.syncWithPreferences()
     }
 
     private func syncDisplayBrightnessHotkeys() {
@@ -489,7 +504,8 @@ final class BrightnessService: ObservableObject {
             && !pendingDisplayIDs.contains($0.id) }.map(\.id))
         guard let id = BrightnessSupport.shortcutDisplay(
             followsPointer: UserDefaults.standard.bool(forKey: DefaultsKey.brightnessKeysEnabled),
-            pointerDisplay: pointerDisplay, primaryDisplay: CGMainDisplayID(), eligible: eligible),
+            pointerDisplay: pointerDisplay.map(VirtualHiDPIService.physicalDisplay),
+            primaryDisplay: VirtualHiDPIService.physicalDisplay(for: CGMainDisplayID()), eligible: eligible),
               let method = displays.first(where: { $0.id == id })?.method else { return }
         step(id, method: method, delta: keyStep.limited(delta),
              showOSD: UserDefaults.standard.bool(forKey: DefaultsKey.brightnessOSDEnabled))
@@ -522,6 +538,12 @@ final class BrightnessService: ObservableObject {
 
     private func start() {
         guard !running else { return }
+        let defaults = UserDefaults.standard
+        if defaults.integer(forKey: "displayDDCProtocolRevisionLocalV1") < 2 {
+            // Old GET checksums could permanently cache a readable monitor as write-only.
+            defaults.removeObject(forKey: DefaultsKey.brightnessDDCWriteOnlyPaths)
+            defaults.set(2, forKey: "displayDDCProtocolRevisionLocalV1")
+        }
         running = true
         screenObserver = NotificationCenter.default.addObserver(
             forName: NSApplication.didChangeScreenParametersNotification,
@@ -555,6 +577,7 @@ final class BrightnessService: ObservableObject {
         rebuildGeneration += 1
         rebuildingTopology = nil
         routes = [:]
+        hardwareRoutes = [:]
         pendingLevels = [:]
         writeSequence = 0
         systemWritesInFlight = []
@@ -562,6 +585,15 @@ final class BrightnessService: ObservableObject {
         knownTopology = []
         knownActiveTopology = []
         stateLock.unlock()
+        hardwareRequests.values.forEach { $0.cancel() }
+        hardwareRequests = [:]
+        stateLock.lock()
+        hardwareRevision = [:]
+        stateLock.unlock()
+        hardwareConfirmed = [:]
+        hardwareControls = [:]
+        VirtualHiDPIService.shared.stopAll()
+        PreciseVolumeRollerService.shared.syncWithPreferences()
         ddcPendingSteps = [:]
         pendingDisplayIDs = []
         displayControlFailure = nil
@@ -1426,7 +1458,7 @@ final class BrightnessService: ObservableObject {
         let underPointer = followsPointer
             && CGGetDisplaysWithPoint(event.location, 1, &pointerDisplay, &matched) == .success && matched > 0
         guard let displayID = BrightnessSupport.plainKeyTarget(followsPointer: followsPointer,
-                                                               pointerDisplay: underPointer ? pointerDisplay : nil,
+                                                               pointerDisplay: underPointer ? VirtualHiDPIService.physicalDisplay(for: pointerDisplay) : nil,
                                                                systemTarget: systemTarget)
         else { return leaveToSystem() }
 
@@ -1666,7 +1698,7 @@ final class BrightnessService: ObservableObject {
                            as? NSNumber)?.uint32Value else {
                 return leaveToSystem()
             }
-            displayID = id
+            displayID = VirtualHiDPIService.physicalDisplay(for: id)
         } else if wantsBrightnessOSD, let systemTarget = systemKeyTarget {
             // With pointer routing off, keep the native target. In clamshell
             // mode this can be a system-managed external display.
@@ -1885,6 +1917,8 @@ final class BrightnessService: ObservableObject {
         let activeTopology = Self.activeDisplayIDs()
         var built: [BrightnessDisplay] = []
         var newRoutes: [CGDirectDisplayID: Route] = [:]
+        var newHardwareRoutes: [CGDirectDisplayID: HardwareRoute] = [:]
+        var newHardwareControls: [CGDirectDisplayID: DisplayHardwareState] = [:]
         var ddcCandidates: [(index: Int, identity: BrightnessSupport.DisplayIdentity)] = []
         var virtualIDs = Set<CGDirectDisplayID>()
 
@@ -1896,15 +1930,21 @@ final class BrightnessService: ObservableObject {
             if (info?["kCGDisplayIsVirtualDevice"] as? Bool ?? false) { virtualIDs.insert(id) }
             // A mirroring display follows its source; the source's slider is
             // the real control.
-            guard CGDisplayMirrorsDisplay(id) == 0 else { continue }
+            let mirrorSource = CGDisplayMirrorsDisplay(id)
+            guard mirrorSource == 0 || VirtualHiDPIService.isOwnedDisplay(mirrorSource) else { continue }
             if let info,
                (info["kCGDisplayIsVirtualDevice"] as? Bool ?? false)
                 || (info["kCGDisplayIsAirPlay"] as? Bool ?? false) {
                 continue
             }
+            if !VirtualHiDPIService.isOwnedDisplay(mirrorSource), let mode = CGDisplayCopyDisplayMode(id) {
+                var width = mode.width, height = mode.height
+                if Int(CGDisplayRotation(id)) % 180 != 0, width > height { swap(&width, &height) }
+                VirtualHiDPIService.recordPhysicalSize(id, width: width, height: height, rate: mode.refreshRate)
+            }
             let isBuiltIn = CGDisplayIsBuiltin(id) != 0
             let name = Self.displayName(id, info: info, screenNames: screenNames)
-            let isActive = activeTopology.contains(id)
+            let isActive = activeTopology.contains(id) || VirtualHiDPIService.isOwnedDisplay(mirrorSource)
 
             if !isActive {
                 stateLock.lock()
@@ -2036,6 +2076,21 @@ final class BrightnessService: ObservableObject {
                 let pathKey = BrightnessSupport.ddcPathKey(
                     displayFingerprint: Self.displayFingerprint(id),
                     ioDisplayLocation: ioDisplayLocation)
+                if let pathKey {
+                    let hardwareRoute = HardwareRoute(service: matched.service, identity: pathKey,
+                                                       fingerprint: Self.displayFingerprint(id))
+                    newHardwareRoutes[id] = hardwareRoute
+                    var controls = DisplayHardwareState(identity: pathKey)
+                    if CGDisplayIsAsleep(id) == 0 {
+                        for control in DisplayHardwareControl.allCases {
+                            if let value = ddcReadControl(control.rawValue, for: id, service: matched.service),
+                               (control == .mute ? (value.current == 1 || value.current == 2) : value.maximum > 0) {
+                                controls.values[control] = value
+                            }
+                        }
+                    }
+                    newHardwareControls[id] = controls
+                }
                 if let pathKey, forcedSoftwarePaths().contains(pathKey) {
                     // Chosen by hand: leave the display in `softwareIndices`
                     // so it takes the gamma route below, and do not spend a
@@ -2212,6 +2267,7 @@ final class BrightnessService: ObservableObject {
                 }
             }
             routes = newRoutes
+            hardwareRoutes = newHardwareRoutes
             recordDiscoveredTopology(online: seenTopology, active: activeTopology,
                                      fingerprints: fingerprints)
             rebuildingTopology = nil
@@ -2230,6 +2286,15 @@ final class BrightnessService: ObservableObject {
         DispatchQueue.main.async { [weak self] in
             guard let self, self.running, generation == self.rebuildGeneration else { return }
             if self.displays != resolved { self.displays = resolved }
+            // A UI request owns its visible value until its readback finishes.
+            for (id, previous) in self.hardwareControls where previous.identity == newHardwareControls[id]?.identity {
+                for control in previous.pending {
+                    newHardwareControls[id]?.values[control] = previous.values[control]
+                    newHardwareControls[id]?.pending.insert(control)
+                }
+            }
+            self.hardwareControls = newHardwareControls
+            PreciseVolumeRollerService.shared.syncWithPreferences()
             if self.softwareDimmingPreferred != forcedSoftwareIDs {
                 self.softwareDimmingPreferred = forcedSoftwareIDs
             }
@@ -2618,6 +2683,181 @@ final class BrightnessService: ObservableObject {
         case .live, .dead: return .dead
         }
     }
+
+    // MARK: - Hardware contrast and audio (same serial I2C queue as brightness)
+
+    private func ddcReadControl(_ code: UInt8, for id: CGDirectDisplayID,
+                                service: CFTypeRef) -> DisplayHardwareValue? {
+        guard let write = BrightnessBridge.writeI2C, let read = BrightnessBridge.readI2C else { return nil }
+        paceDDCCommand(for: id)
+        defer { recordDDCCommandEnd(for: id) }
+        var packet = BrightnessSupport.readRequestPacket(code: code)
+        for _ in 0..<3 {
+            usleep(BrightnessSupport.writePauseMicroseconds)
+            guard write(service, BrightnessSupport.chipAddress, BrightnessSupport.dataAddress,
+                        &packet, UInt32(packet.count)) == KERN_SUCCESS else { return nil }
+            usleep(BrightnessSupport.readPauseMicroseconds)
+            var reply = [UInt8](repeating: 0, count: 11)
+            if read(service, BrightnessSupport.chipAddress, 0, &reply, 11) == KERN_SUCCESS {
+                // Unsupported is a valid response, not a transport retry.
+                if reply[0] == 0x6e, reply[1] == 0x88, reply[2] == 2, reply[4] == code,
+                   reply.dropLast().reduce(UInt8(0x50), { $0 ^ $1 }) == reply.last,
+                   reply[3] != 0 { return nil }
+                if let parsed = BrightnessSupport.parseReply(reply, code: code) {
+                    return DisplayHardwareValue(current: parsed.current, maximum: parsed.maximum)
+                }
+            }
+            usleep(BrightnessSupport.retryPauseMicroseconds)
+        }
+        return nil
+    }
+
+    /// Explicit audio UID binding; a monitor name alone never takes ownership of volume keys.
+    func bindAudio(_ uid: String?, to id: CGDirectDisplayID) {
+        guard let identity = hardwareControls[id]?.identity else { return }
+        var bindings = UserDefaults.standard.dictionary(forKey: DisplayHardwarePreferences.audioBindings) as? [String: String] ?? [:]
+        bindings = bindings.filter { $0.value != identity }
+        if let uid, !uid.isEmpty { bindings[uid] = identity }
+        UserDefaults.standard.set(bindings, forKey: DisplayHardwarePreferences.audioBindings)
+        objectWillChange.send()
+        PreciseVolumeRollerService.shared.syncWithPreferences()
+    }
+
+    func boundAudioUID(for id: CGDirectDisplayID) -> String? {
+        guard let identity = hardwareControls[id]?.identity else { return nil }
+        let bindings = UserDefaults.standard.dictionary(forKey: DisplayHardwarePreferences.audioBindings) as? [String: String] ?? [:]
+        return bindings.first { $0.value == identity }?.key
+    }
+
+    var hardwareAudioDisplayID: CGDirectDisplayID? {
+        let mixer = AppVolumeMixer.shared
+        guard let uid = mixer.currentOutputDeviceUID else { return nil }
+        let output = mixer.outputDevices.first { $0.uid == uid }
+        let binding = (UserDefaults.standard.dictionary(forKey: DisplayHardwarePreferences.audioBindings) as? [String: String])?[uid]
+        let monitors = displays.filter { $0.isActive && !$0.isBuiltIn }.map { display -> DisplayKeyRoutingSupport.Monitor in
+            let state = hardwareControls[display.id]
+            return .init(id: display.id, identity: state?.identity ?? "unavailable:\(display.id)",
+                         name: display.name, supportsVolume: state?.values[.volume] != nil)
+        }
+        return DisplayKeyRoutingSupport.audioDisplay(nativeVolumeAvailable: mixer.systemOutputVolume != nil,
+            displayTransport: output?.isDisplayAudio == true, outputName: output?.name ?? "",
+            explicitIdentity: binding, monitors: monitors)
+    }
+
+    func stepHardwareAudio(_ direction: Int, fine: Bool, completion: @escaping (Bool) -> Void) {
+        guard let id = hardwareAudioDisplayID, let current = hardwareControls[id]?.values[.volume] else {
+            completion(false); return
+        }
+        let delta = (fine ? 1.0 / 64.0 : 1.0 / 16.0) * Double(direction)
+        let target = min(1, max(0, current.normalized + delta))
+        // Publish unmute intent before the volume notice, without waiting for DDC.
+        if target > 0, hardwareControls[id]?.values[.mute]?.current == 1 {
+            setHardwareControl(.mute, value: 0, for: id) { [weak self] applied in
+                if !applied { self?.showHardwareAudioOSD(for: id) }
+            }
+        }
+        setHardwareControl(.volume, value: target, for: id, showOSD: true, completion: completion)
+    }
+
+    func toggleHardwareMute(for id: CGDirectDisplayID, completion: @escaping (Bool) -> Void = { _ in }) {
+        guard let state = hardwareControls[id] else { completion(false); return }
+        if let muted = state.values[.mute] {
+            setHardwareControl(.mute, value: muted.current == 1 ? 0 : 1, for: id,
+                               showOSD: true, completion: completion)
+        } else if let volume = state.values[.volume] {
+            if volume.current > 0 { audibleLevels[state.identity] = volume.current }
+            let restored = audibleLevels[state.identity]
+            guard volume.current > 0 || restored != nil else { completion(false); return }
+            let target = volume.current > 0 ? 0 : Double(restored!) / Double(volume.maximum)
+            setHardwareControl(.volume, value: target, for: id, showOSD: true, completion: completion)
+        } else { completion(false) }
+    }
+
+    func setHardwareControl(_ control: DisplayHardwareControl, value: Double, for id: CGDirectDisplayID,
+                            showOSD: Bool = false, completion: @escaping (Bool) -> Void = { _ in }) {
+        guard value.isFinite, var state = hardwareControls[id], let old = state.values[control] else {
+            completion(false); return
+        }
+        stateLock.lock()
+        let route = hardwareRoutes[id]
+        stateLock.unlock()
+        guard let route, route.identity == state.identity else { completion(false); return }
+        let desired: UInt16 = control == .mute ? (value >= 0.5 ? 1 : 2)
+            : UInt16((min(1, max(0, value)) * Double(old.maximum)).rounded())
+        let key = "\(id):\(control.rawValue)"
+        hardwareRequests[key]?.cancel()
+        hardwareSequence &+= 1
+        let revision = hardwareSequence
+        stateLock.lock()
+        hardwareRevision[key] = revision
+        stateLock.unlock()
+        if old.confirmed { hardwareConfirmed[key] = old }
+        let rollback = hardwareConfirmed[key] ?? old
+        state.values[control] = DisplayHardwareValue(current: desired, maximum: old.maximum, confirmed: false)
+        state.pending.insert(control)
+        state.failure = nil
+        hardwareControls[id] = state
+        if showOSD { showHardwareAudioOSD(for: id) }
+        let job = DispatchWorkItem { [weak self] in
+            guard let self else { completion(false); return }
+            self.hardwareRequests[key] = nil
+            self.workQueue.async {
+                self.stateLock.lock()
+                let superseded = self.hardwareRevision[key] != revision
+                let valid = self.hardwareRoutes[id]?.identity == route.identity
+                    && self.hardwareRoutes[id]?.service === route.service
+                self.stateLock.unlock()
+                // A newer intent owns the result and any error recovery. Do not
+                // spend a slow DDC round trip on an already obsolete queued write.
+                guard !superseded else { DispatchQueue.main.async { completion(true) }; return }
+                guard valid, Self.displayFingerprint(id) == route.fingerprint, CGDisplayIsOnline(id) != 0 else {
+                    DispatchQueue.main.async { completion(false) }; return
+                }
+                let accepted = self.ddcSend(to: id, service: route.service,
+                    packet: BrightnessSupport.writePacket(code: control.rawValue, value: desired))
+                let reading = accepted ? self.ddcReadControl(control.rawValue, for: id, service: route.service) : nil
+                let confirmed = accepted && reading?.current == desired
+                DispatchQueue.main.async {
+                    guard self.hardwareControls[id]?.identity == route.identity else { completion(false); return }
+                    if let reading { self.hardwareConfirmed[key] = reading }
+                    guard self.hardwareRevision[key] == revision else { completion(true); return }
+                    self.hardwareControls[id]?.pending.remove(control)
+                    if let reading {
+                        self.hardwareControls[id]?.values[control] = reading
+                        self.hardwareConfirmed[key] = reading
+                    } else { self.hardwareControls[id]?.values[control] = self.hardwareConfirmed[key] ?? rollback }
+                    if !confirmed { self.hardwareControls[id]?.failure = DisplayControlText.failed }
+                    // Successful readback confirms the notice already on screen.
+                    // Only a failed request needs a correction; never replay an old level.
+                    if !confirmed, showOSD { self.showHardwareAudioOSD(for: id) }
+                    completion(confirmed)
+                }
+            }
+        }
+        hardwareRequests[key] = job
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.04, execute: job)
+    }
+
+    private func showHardwareAudioOSD(for id: CGDirectDisplayID) {
+        guard let state = hardwareControls[id], let volume = state.values[.volume] else { return }
+        let muted = state.values[.mute]?.current == 1 || volume.current == 0
+        if !NotchService.shared.showVolume(volume.normalized, muted: muted) {
+            BrightnessOSD.showVolume(displayID: id, volume: volume.normalized, muted: muted)
+        }
+    }
+
+    #if VORSSAINT_DEVELOPMENT
+    func readHardwareForValidation(_ code: UInt8, for id: CGDirectDisplayID,
+                                    completion: @escaping (DisplayHardwareValue?) -> Void) {
+        stateLock.lock(); let route = hardwareRoutes[id]; stateLock.unlock()
+        guard let route else { completion(nil); return }
+        workQueue.async {
+            let reading = Self.displayFingerprint(id) == route.fingerprint
+                ? self.ddcReadControl(code, for: id, service: route.service) : nil
+            DispatchQueue.main.async { completion(reading) }
+        }
+    }
+    #endif
 
     // MARK: - Display identity
 

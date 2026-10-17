@@ -25,15 +25,15 @@ for DEV in 1 0; do
     stopped=()
     signed=()
     for name in Vorss 'Vorssaint Utils' Vorssaint \
-        'vorssaint-imstevelin' 'vorssaint-imstevelin (Developer)'; do
+        'vorssaint-imstevelin' 'vorssaint-imstevelin (Developer)' '實用小工具' '實用小工具 (Developer)'; do
         mkdir -p "$install_test_dir/Applications/$name.app"
         print original > "$install_test_dir/Applications/$name.app/content"
     done
     if (( DEV )); then
-        APP_NAME='vorssaint-imstevelin (Developer)'
+        APP_NAME='實用小工具 (Developer)'
         EXECUTABLE=VorssaintImstevelinDeveloper
     else
-        APP_NAME=vorssaint-imstevelin
+        APP_NAME='實用小工具'
         EXECUTABLE=VorssaintImstevelin
     fi
     source "$install_test_dir/install.zsh"
@@ -44,10 +44,10 @@ for DEV in 1 0; do
     done
     if (( DEV )); then
         [[ "${stopped[*]}" == VorssaintImstevelinDeveloper ]]
-        [[ "$(cat "$install_test_dir/Applications/vorssaint-imstevelin.app/content")" == original ]]
+        [[ "$(cat "$install_test_dir/Applications/實用小工具.app/content")" == original ]]
     else
         [[ "${stopped[*]}" == VorssaintImstevelin ]]
-        [[ "$(cat "$install_test_dir/Applications/vorssaint-imstevelin (Developer).app/content")" == original ]]
+        [[ "$(cat "$install_test_dir/Applications/實用小工具 (Developer).app/content")" == original ]]
     fi
 done
 print 'DEVELOPER INSTALL ISOLATION TESTS OK'

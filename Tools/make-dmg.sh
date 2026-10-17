@@ -8,7 +8,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-APP_NAME="vorssaint-imstevelin"
+APP_NAME="實用小工具"
 APP="build/stage/$APP_NAME.app"
 VOLUME="$APP_NAME"
 STAGING=""

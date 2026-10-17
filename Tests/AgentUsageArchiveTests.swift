@@ -411,10 +411,14 @@ enum AgentUsageArchiveSettleTests {
             Thread.sleep(forTimeInterval: 0.2)
         }
         reading.wait()
+        let before = Date()
         host.settleArchive(keeping: false)
+        suite.expect(Date().timeIntervalSince(before) < 0.15,
+                     "turning the section off returns without waiting for an active history read")
+        host.queue.sync {}
         suite.expect(AgentUsageArchive.removed == 1 && host.saved == 0,
-                     "turning the section off removes saved progress before stopping returns, behind a read in progress")
-        host.settleArchive(keeping: true)
+                     "queued removal still finishes behind the earlier read")
+        host.settleArchive(keeping: true, wait: true)
         suite.expect(AgentUsageArchive.removed == 1 && host.saved == 1,
                      "quitting with the section on saves progress before stopping returns")
     }

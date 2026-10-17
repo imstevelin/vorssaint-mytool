@@ -137,7 +137,7 @@ enum NotchMascotHidingContract {
                      "on a stroll it stays out, and the stroll's end starts a whole quiet while")
         for (name, busy, free) in [
             ("a reaction waiting to show", { (s: Service) in
-                s.pendingMascotReaction = (.celebrate, s.mediaTime() + 60, s.mediaTime())
+                s.pendingMascotReaction = (.celebrate, s.mediaTime() + NotchMascotSupport.hideDelay + 60, s.mediaTime())
             }, { (s: Service) in s.pendingMascotReaction = nil }),
             ("the island opening around it", { (s: Service) in s.mascotBridging = true },
              { (s: Service) in s.mascotBridging = false }),

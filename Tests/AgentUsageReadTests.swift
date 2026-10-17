@@ -12,8 +12,8 @@ enum AgentUsageReadTests {
     enum AgentLogReader {
         static var beforeLine: (() -> Void)?
         static func isLog(_ path: String) -> Bool { AgentUsageProductionLogReader.isLog(path) }
-        static func discover(_ roots: [AgentLogRoot], since horizon: Date) -> [(path: String, provider: AgentProvider)] {
-            AgentUsageProductionLogReader.discover(roots, since: horizon)
+        static func discover(_ roots: [AgentLogRoot], since horizon: Date, shouldContinue: () -> Bool = { true }) -> [(path: String, provider: AgentProvider)] {
+            AgentUsageProductionLogReader.discover(roots, since: horizon, shouldContinue: shouldContinue)
         }
         static func copilotHistoryLine(_ buffer: Data, range: Range<Int>) -> Bool {
             AgentUsageProductionLogReader.copilotHistoryLine(buffer, range: range)

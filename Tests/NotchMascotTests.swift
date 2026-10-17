@@ -29,6 +29,90 @@ enum NotchMascotTests {
         dropletContracts(suite)
         calendarContracts(suite)
         centeringContracts(suite)
+        autonomousContracts(suite)
+        frontalContracts(suite)
+    }
+
+    private static func frontalContracts(_ suite: TestSuite) {
+        // Keep ears compact while retaining the two readable animal silhouettes.
+        for size: CGFloat in [18, 24, 32] {
+            let dog = NotchMascotGeometry.animal(.dog, size: size)
+            let bear = NotchMascotGeometry.animal(.bear, size: size)
+            suite.expect(dog.ears.boundingBoxOfPath.height < dog.head.boundingBoxOfPath.height * 0.75,
+                "drooping dog ears stay smaller than the face at island sizes")
+            suite.expect(bear.ears.boundingBoxOfPath.height < bear.head.boundingBoxOfPath.height * 0.25,
+                "round bear ears stay compact relative to the face")
+        }
+        for style in NotchMascotStyle.allCases where style.isAnimal {
+            let look = NotchMascotLook(style: style, shape: .ball, palette: .pearl)
+            let bounds = NotchMascotGeometry.figureBounds(look)
+            let scale = NotchMascotGeometry.displayScale(look)
+            suite.expect(bounds.height * scale >= 0.96 && bounds.height * scale <= 0.99,
+                "custom animals fill more vertical space than the original 0.84-height face")
+            suite.expect(bounds.width * scale <= 1.22 + 0.001,
+                "enlarged animals retain a bounded width beside the camera")
+            suite.expect(abs((bounds.midY - 0.5) * scale - NotchMascotGeometry.figureOffset(look)) < 0.001,
+                "visible silhouettes remain centred after enlargement")
+        }
+        for play in NotchMascotPlay.allCases {
+            suite.expect(play.duration >= 26, "frontal greetings retain the longer visit duration")
+        }
+    }
+
+    private static func autonomousContracts(_ suite: TestSuite) {
+        let left = NotchMascotSupport.track(stripWidth: 268, stripHeight: 32, wing: 44, cameraWidth: 180,
+            floats: false, bodyHeight: 32, side: .left)
+        let right = NotchMascotSupport.track(stripWidth: 268, stripHeight: 32, wing: 44, cameraWidth: 180,
+            floats: false, bodyHeight: 32, side: .right)
+        let capsule = NotchMascotSupport.track(stripWidth: 76, stripHeight: 24, wing: 0, cameraWidth: 0,
+            floats: true, bodyHeight: 20)
+        for style in NotchMascotStyle.allCases {
+            suite.expect(!style.fidgets.isEmpty && style.breathingPeriod >= 3,
+                "every companion has its own quiet idle habits")
+            for previous in NotchMascotPlay.allCases {
+                for random in [0.0, 0.3, 0.9, 1.0] {
+                    suite.expect(style.nextPlay(after: previous, random: random) != previous,
+                        "autonomous encounters never repeat the same story consecutively")
+                }
+            }
+            if style.isAnimal {
+                let parts = NotchMascotGeometry.animal(style, size: 20)
+                let bounds = parts.head.boundingBoxOfPath.union(parts.ears.boundingBoxOfPath).union(parts.tail.boundingBoxOfPath)
+                suite.expect(CGRect(x: 0, y: 0, width: 20, height: 20).contains(bounds),
+                    "animal ears and tails fit compact island geometry")
+                let face = NotchMascotLook(style: style, shape: .ball, palette: .pearl).face
+                suite.expect(parts.head.contains(CGPoint(x: face.leftEye.x * 20, y: face.leftEye.y * 20)),
+                    "animal eyes sit inside the head silhouette")
+            }
+        }
+        for play in NotchMascotPlay.allCases {
+            for exits in [false, true] {
+                let kind = NotchMascotVisit.Kind.play(play, exits: exits)
+                suite.expect(kind.endsOutOfSight == exits && kind.isAutonomous && kind.takesOnlyItsWing,
+                    "self-directed visits preserve activity ownership and exit semantics")
+                for track in [left, right, capsule] {
+                    let path = NotchMascotMotion.path(for: kind, on: track)
+                    suite.expect(path.duration == play.duration && path.keyTimes.first == 0 && path.keyTimes.last == 1,
+                        "autonomous story timing fits the service's visit lifetime")
+                    suite.expect(path.keyTimes.count == path.x.count && path.x.count == path.gaze.count
+                        && zip(path.keyTimes, path.keyTimes.dropFirst()).allSatisfy { $0 <= $1 },
+                        "all autonomous keyframes are aligned and monotonic")
+                    suite.expect(path.acts.count >= 3 && path.acts.allSatisfy { $0.time + $0.length < path.duration },
+                        "encounters have multiple expressive beats before they leave")
+                    if !exits {
+                        suite.expect(abs((path.x.last ?? 0) - track.rest) < 0.001,
+                            "resident autonomous visits return to the exact resting position")
+                    }
+                }
+                let l = NotchMascotMotion.path(for: kind, on: left)
+                let r = NotchMascotMotion.path(for: kind, on: right)
+                suite.expect(zip(l.x, r.x).allSatisfy { abs($0 + $1 - left.width) < 0.001 },
+                    "autonomous stories mirror cleanly beside either camera wing")
+            }
+        }
+        let invitation = NotchMascotMotion.path(for: .play(.invite, exits: true), on: left)
+        suite.expect(invitation.interaction.map { $0.upperBound - $0.lowerBound >= 3 } == true,
+            "an invitation leaves enough time to notice the companion and pet it")
     }
 
     /// Placed by its box, a minimal body sat below the middle it was given,
@@ -46,10 +130,14 @@ enum NotchMascotTests {
                         let parts = NotchMascotGeometry.robot(size: size)
                         figure = [parts.ears, parts.antenna, parts.bulb]
                             .reduce(parts.head.boundingBoxOfPath) { $0.union($1.boundingBoxOfPath) }
+                    } else if style.isAnimal {
+                        let parts = NotchMascotGeometry.animal(style, size: size)
+                        figure = parts.ears.boundingBoxOfPath.union(parts.head.boundingBoxOfPath).union(parts.tail.boundingBoxOfPath)
                     } else {
                         figure = NotchMascotGeometry.body(shape, size: size).boundingBoxOfPath
                     }
-                    suite.expect(abs(boxTop + figure.midY - middle) < 0.001,
+                    let renderedMidY = size / 2 + (figure.midY - size / 2) * NotchMascotGeometry.displayScale(look)
+                    suite.expect(abs(boxTop + renderedMidY - middle) < 0.001,
                                  "a \(style.rawValue) \(shape.rawValue) companion of \(size) points is centred on its line")
                 }
             }
@@ -698,6 +786,10 @@ enum NotchMascotTests {
                                     cameraWidth: 0, silhouette: .capsule)
         let through = NotchMascotSupport.track(overActivity: capsule,
                                                size: CGSize(width: 140, height: capsule.stripHeight))
+        let tallSize = CGSize(width: 140, height: capsule.stripHeight + 48)
+        let taller = NotchMascotSupport.track(overActivity: capsule, size: tallSize)
+        suite.expect(taller?.height == tallSize.height && taller?.baseline == tallSize.height / 2,
+                     "adding activity content centres the companion in the actual surface height")
         suite.expect(capsule.floats && through?.hidden == nil && through?.rest == 70 && through?.mirrored == false,
                      "over a capsule's activity it comes out in the middle")
     }

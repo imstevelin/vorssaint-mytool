@@ -2301,9 +2301,9 @@ enum FeatureCatalogTests {
         suite.expect(ddcWrite == expectedDDCWrite,
                "DDC write packet carries the set opcode, big-endian value and checksum")
         let ddcRead = BrightnessSupport.readRequestPacket(code: 0x10)
-        let expectedDDCRead: [UInt8] = [0x82, 0x01, 0x10, 0xFD]
+        let expectedDDCRead: [UInt8] = [0x82, 0x01, 0x10, 0xAC]
         suite.expect(ddcRead == expectedDDCRead,
-               "DDC read request omits the sub-address from its checksum seed")
+               "DDC GET checksum includes destination and source addresses")
         suite.expect(Array(BrightnessSupport.writePacket(code: 0x10, value: 100)[3...4]) == [0x00, 0x64],
                "DDC values split into high and low bytes")
 
@@ -2322,6 +2322,15 @@ enum FeatureCatalogTests {
         staleReply.append(staleReply.reduce(UInt8(0x50)) { $0 ^ $1 })
         suite.expect(BrightnessSupport.parseReply(staleReply, code: 0x10) == nil,
                "a reply for another control reads as no reply instead of that control's value")
+
+        var unsupported = ddcReply
+        unsupported[3] = 1
+        unsupported[10] = unsupported.prefix(10).reduce(UInt8(0x50)) { $0 ^ $1 }
+        suite.expect(BrightnessSupport.parseReply(unsupported, code: 0x10) == nil,
+                     "a checksum-valid unsupported reply is never a brightness reading")
+        suite.expect(BrightnessSupport.readRequestPacket(code: 0x62) == [0x82, 1, 0x62, 0xde]
+                     && BrightnessSupport.readRequestPacket(code: 0x8d) == [0x82, 1, 0x8d, 0x31],
+                     "volume and mute use independently specified GET packets")
 
         suite.expect(BrightnessSupport.sanitizedMaximum(0) == 100 && BrightnessSupport.sanitizedMaximum(255) == 255,
                "a display reporting no range falls back to the conventional scale")

@@ -47,6 +47,13 @@ def availability_declaration(path, prefix):
 
 def main():
     OUTPUT.mkdir(parents=True, exist_ok=True)
+    write("SystemOutputControlRuntime.swift", "import AppKit\nimport Combine\n"
+          + "extension SystemOutputControlTests {\n"
+          + declaration("Sources/Vorssaint/Services/Audio/SystemOutputControl.swift", "final class SystemOutputControl:")
+          + "}\n")
+    write("VolumeFeedbackSoundRuntime.swift", "import Foundation\nextension VolumeFeedbackSoundTests {\n"
+          + declaration("Sources/Vorssaint/Services/Audio/VolumeFeedbackSound.swift", "final class VolumeFeedbackSound")
+          + "}\n")
     recorder = "Sources/Vorssaint/Services/Recorder/ScreenRecorderService.swift"
     write("RecorderPreparation.swift", "import Foundation\nextension RecorderPreparationTests {\n"
           + "final class Service: Fixture {\n"
@@ -200,6 +207,50 @@ def main():
               "    private func restoreManagedDisplayIfHeadless(",
               "    private func recordDiscoveredTopology(", "    private func discardReplacedDisplay(",
               "    private func displaysWokeUp("])
+          + "}\n}\n")
+    hardware = "Sources/Vorssaint/Services/Display/DisplayHardwareSupport.swift"
+    write("DisplayAudioBurst.swift", "import CoreGraphics\nimport Foundation\nextension DisplayAudioBurstTests {\n"
+          + "".join(declaration(hardware, prefix) for prefix in ["enum DisplayHardwareControl:", "struct DisplayHardwareValue:", "struct DisplayHardwareState:"])
+          + declaration(brightness, "    private struct HardwareRoute").replace("private ", "", 1)
+          + "final class Service: Fixture {\n"
+          + "".join(declaration(brightness, prefix).replace("private func", "func", 1) for prefix in [
+              "    func stepHardwareAudio(", "    func setHardwareControl(", "    private func showHardwareAudioOSD("])
+          + "}\n}\n")
+    hidpi = "Sources/Vorssaint/Services/Display/VirtualHiDPIService.swift"
+    memory_service = "Sources/Vorssaint/Services/WindowLayout/DisplayWindowMemoryService.swift"
+    write("ResourceRemovalBarrier.swift", "import Foundation\nextension ResourceRemovalBarrierTests {\nfinal class Host: Fixture {\n"
+          + declaration(memory_service, "    func prepareForRemoval()")
+          + "}\n}\n")
+    write("ResourceHotProfiles.swift", "import Foundation\nextension ResourceHotProfileTests {\nfinal class Host: Fixture {\n"
+          + declaration(memory_service, "    private func trimHotProfiles()").replace("private func", "func", 1)
+          + "}\n}\n")
+    write("DisplayWindowMemoryScan.swift", "import Foundation\nimport CoreGraphics\nextension DisplayWindowMemoryScanTests {\n"
+          + declaration(memory_service, "    private struct VisibleWindow").replace("private ", "", 1)
+          + declaration(memory_service, "    private struct Observation").replace("private ", "", 1)
+          + "final class Service: Fixture {\n"
+          + declaration(memory_service, "    private func processWindows(").replace("private func", "func", 1)
+          + "    func scan() { processWindows(visibleWindows()) }\n"
+          + "}\n}\n")
+    write("DisplayReconnectTiming.swift", "import Foundation\nimport CoreGraphics\nextension DisplayReconnectTimingTests {\n"
+          + "final class ResumeService: ResumeState {\n"
+          + declaration(hidpi, "    private func scheduleSavedProfiles()").replace("private func", "func", 1)
+          + "}\nfinal class MemoryService: MemoryState {\n"
+          + declaration(memory_service, "    func beginManagedDisplayTransition()")
+          + declaration(memory_service, "    func endManagedDisplayTransition()")
+          + "}\n}\n")
+    color_support = "Sources/DisplayRecoverySupport/DisplayRecoverySnapshot.swift"
+    write("DisplayColorPipeline.swift", "import Foundation\nimport CoreGraphics\n"
+          + "extension DisplayColorPipelineTests.Checker {\n"
+          + declaration(color_support, "    public static func matches(").replace("public ", "", 1)
+          + "}\nextension DisplayColorPipelineTests {\n"
+          + declaration(color_support, "public struct VirtualDisplayHostRequest:").replace("public ", "")
+          + "}\n")
+    write("HiDPIRefreshRate.swift", "import CoreGraphics\nimport Foundation\nextension HiDPIRefreshRateTests {\n"
+          + declaration(hidpi, "    struct Profile:")
+          + "final class Service: Fixture {\n"
+          + "".join(declaration(hidpi, prefix) for prefix in [
+              "    static func recordPhysicalSize(", "    func presets(", "    func defaultProfile(",
+              "    func refreshRates(", "    static func valid(", "    static func stableVerificationCount("])
           + "}\n}\n")
     write("BrightnessStep.swift", "import CoreGraphics\nimport Foundation\nimport os\n"
           + "extension BrightnessStepTests {\n"
@@ -663,6 +714,8 @@ def main():
           + "extension NotchVolumeRoutingTests {\nfinal class Service: State {\n"
           + declaration("Sources/Vorssaint/Services/Audio/PreciseVolumeRollerService.swift",
                         "    private func routeNotchVolume(").replace("private func", "func", 1)
+          + declaration("Sources/Vorssaint/Services/Audio/PreciseVolumeRollerService.swift",
+                        "    private func routeHardwareVolume(").replace("private func", "func", 1)
           + "}\n}\n")
     mixer_section = "Sources/Vorssaint/UI/MenuPanel/MixerSection.swift"
     write("MixerPercentKey.swift", "import Foundation\nextension MixerPercentKeyTests {\nfinal class Coordinator: Fixture {\n"

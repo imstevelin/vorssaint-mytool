@@ -37,7 +37,7 @@ enum SettingsBackupSupport {
         // An official backup predates this fork's display memory switches.
         // Importing it must not turn off choices made in the fork afterward.
         for key in [DefaultsKey.windowRememberSizes, DefaultsKey.windowRestoreDisplayLayout,
-                    DefaultsKey.bluetoothAudioRecoveryEnabled]
+                    DefaultsKey.bluetoothAudioRecoveryEnabled, DefaultsKey.bluetoothAudioRecoveryDevices]
             where settings[key] == nil {
             keys.remove(key)
         }
@@ -68,6 +68,7 @@ enum SettingsBackupSupport {
         DefaultsKey.appVolumesArePositions,
         DefaultsKey.appOutputDevices,
         DefaultsKey.mixerHiddenApps,
+        DefaultsKey.volumeFeedbackSoundEnabled,
         DefaultsKey.preferredInputDevice,
         DefaultsKey.soundOutputSwitcherDeviceUIDs,
         DefaultsKey.menuBarCPU,
@@ -109,6 +110,8 @@ enum SettingsBackupSupport {
     /// out by construction (they are not preference keys), listed here only
     /// when they would otherwise slip in through the registered set.
     static let machineStateKeys: Set<String> = [
+        "displayHardwareAudioBindingsLocalV1",
+        "virtualHiDPIProfilesLocalV1",
         DefaultsKey.displaysSwitchedOff,
         DefaultsKey.displaysSwitchedOffFingerprints,
         DefaultsKey.dockPreviewRestoreAutohide,

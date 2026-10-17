@@ -23,11 +23,7 @@ final class RecorderPointerSampler {
     private var thread: Thread?
     private var clickMonitor: Any?
     private let lock = NSLock()
-    private var samples: [RecorderMotion.Sample] = []
-    /// The pointer shape in effect for each sample, kept alongside rather than
-    /// inside it: the seed only becomes an index once the recording is over
-    /// and every shape that appeared is known.
-    private var identities: [UInt64] = []
+    private var spool: RecorderPointerSpool?
     private var clicks: [RecorderMotion.Click] = []
     private let cursors = RecorderCursorCatalog()
     private var running = false
@@ -54,10 +50,7 @@ final class RecorderPointerSampler {
         let generation = lock.withLock { () -> Int in
             self.generation += 1
             running = true
-            samples.removeAll(keepingCapacity: true)
-            samples.reserveCapacity(Int(Self.sampleRate) * 60)
-            identities.removeAll(keepingCapacity: true)
-            identities.reserveCapacity(Int(Self.sampleRate) * 60)
+            spool = RecorderPointerSpool()
             lastSeed = nil
             currentIdentity = 0
             clicks.removeAll(keepingCapacity: true)
@@ -82,24 +75,35 @@ final class RecorderPointerSampler {
     }
 
     /// Stops sampling and hands over what was collected.
-    func stop() -> RecorderPointerTrack {
-        thread = nil
-        if let clickMonitor {
-            NSEvent.removeMonitor(clickMonitor)
+    func stop() async throws -> RecorderPointerTrack {
+        let stopped = await MainActor.run {
+            self.thread = nil
+            if let monitor = self.clickMonitor { NSEvent.removeMonitor(monitor) }
             self.clickMonitor = nil
+            return self.lock.withLock {
+                self.running = false
+                let spool = self.spool
+                self.spool = nil
+                let clicks = self.clicks
+                self.clicks.removeAll()
+                return (spool, clicks, self.cursors.collected(), self.cursors.systemScale)
+            }
         }
-        return lock.withLock {
-            running = false
-            let track = RecorderPointerTrack.packing(samples: samples,
-                                                     identities: identities,
-                                                     clicks: clicks,
-                                                     catalog: cursors.collected(),
-                                                     systemScale: cursors.systemScale,
-                                                     displayScale: displayScale)
-            samples.removeAll()
-            identities.removeAll()
-            clicks.removeAll()
-            return track
+        // Disk drain and offline packing can be sizeable after a long take;
+        // keep them away from the main actor and its finishing UI.
+        // The producer is stopped under its lock. This exclusively owned
+        // spool/catalog snapshot is handed to one worker and never mutated by main.
+        nonisolated(unsafe) let handoff = stopped
+        return try await withCheckedThrowingContinuation { continuation in
+            DispatchQueue.global(qos: .userInitiated).async { [displayScale] in
+                do {
+                    let recorded = try handoff.0?.finish() ?? (samples: [], identities: [])
+                    let track = RecorderPointerTrack.packing(samples: recorded.samples,
+                        identities: recorded.identities, clicks: handoff.1, catalog: handoff.2,
+                        systemScale: handoff.3, displayScale: displayScale)
+                    continuation.resume(returning: track)
+                } catch { continuation.resume(throwing: error) }
+            }
         }
     }
 
@@ -127,8 +131,7 @@ final class RecorderPointerSampler {
                         point: point,
                         isPointerVisible: cursors.isPointerVisible()
                     )
-                    samples.append(sample)
-                    identities.append(currentIdentity)
+                    spool?.append(sample, identity: currentIdentity)
                 }
             }
             let elapsed = CACurrentMediaTime() - now

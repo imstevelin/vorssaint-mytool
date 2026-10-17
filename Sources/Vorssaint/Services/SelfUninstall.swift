@@ -122,6 +122,10 @@ enum SelfUninstall {
                     // Do not clear the launch choice while a failed reset
                     // could still leave this app installed.
                     detachLoginItem()
+                    DispatchQueue.main.sync {
+                        DisplayWindowMemoryService.shared.prepareForRemoval()
+                        AgentUsageService.shared.prepareForRemoval()
+                    }
                     removePreferences()
                     DispatchQueue.main.async { trashOwnBundleAndQuit() }
                 }
@@ -153,6 +157,7 @@ enum SelfUninstall {
         MouseButtonShortcutService.shared.suspend()
         WindowMaximizer.shared.stop()
         WindowLayoutService.shared.suspend()
+        DisplayWindowMemoryService.shared.suspend()
         PointerDisplayService.shared.suspend()
         AppSwitcher.shared.suspend()
         DockPreviewService.shared.stop()

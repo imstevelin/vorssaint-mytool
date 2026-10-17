@@ -313,7 +313,11 @@ struct EnergySettings: View {
                         .foregroundStyle(.secondary)
                 } else {
                     ForEach(brightness.displays) { display in
-                        displayRow(display)
+                        VStack(alignment: .leading, spacing: 10) {
+                            displayRow(display)
+                            DisplayHardwareControls(display: display)
+                                .padding(.leading, settingsRowTextInset)
+                        }
                     }
                 }
                 if let failure = brightness.displayControlFailure {

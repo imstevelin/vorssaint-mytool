@@ -302,6 +302,7 @@ final class NotchService: ObservableObject {
     private var mascotStepBackWork: DispatchWorkItem?
     private var mascotVisitWork: DispatchWorkItem?
     private var nextMascotVisitWork: DispatchWorkItem?
+    private var lastMascotPlay: NotchMascotPlay?
     /// Visits were on at the last preference sync, so turning them on is greeted.
     private var mascotVisitsWereOn = false
     /// How often it visited as of the last preference sync.
@@ -852,7 +853,7 @@ final class NotchService: ObservableObject {
     }
     /// A detail's title, the app panel's, or the island's own with no sections.
     var detailTitle: String {
-        if showingAppPanel { return "Vorssaint" }
+        if showingAppPanel { return AppInfo.name }
         let language = L10n.shared.language
         guard let metric = selectedMetric else { return FeatureStrings.notch(language).title }
         // The fan card opens Fan Control, so its page shares that title.
@@ -3930,9 +3931,9 @@ final class NotchService: ObservableObject {
     }
 
     func showCurrentVolume() {
-        let mixer = AppVolumeMixer.shared
-        guard let volume = mixer.systemOutputVolume else { return }
-        showVolume(volume, muted: mixer.systemOutputMuted)
+        let output = SystemOutputControl.shared
+        guard let volume = output.volume else { return }
+        showVolume(volume, muted: output.muted)
     }
 
     /// The island's own output controls already show the level they set.
@@ -4174,7 +4175,9 @@ extension NotchService {
             if asked { beginMascotCameo(.celebrate) } else { scheduleMascotVisit(after: NotchMascotSupport.nextVisitDelay()) }
             return
         }
-        let visit = NotchMascotVisit(id: UUID(), kind: mascotRestsInView ? .lap : .pass,
+        let play = NotchMascotSupport.look().style.nextPlay(after: lastMascotPlay)
+        lastMascotPlay = play
+        let visit = NotchMascotVisit(id: UUID(), kind: .play(play, exits: !mascotRestsInView),
                                      greeting: greeting ?? NotchMascotSupport.greeting(), start: CACurrentMediaTime())
         setMascotVisit(visit)
         // Every stroll ends out of sight or where it rests, so its last frame
@@ -4458,9 +4461,13 @@ extension NotchService {
     /// place beside the camera it rests in when the island is closed.
     func mascotResidentTrack(surfaceWidth width: CGFloat) -> NotchMascotTrack {
         let wing = (width - geometry.cameraWidth) / 2
-        return NotchMascotSupport.track(stripWidth: width, stripHeight: geometry.stripHeight,
-                                        wing: wing, cameraWidth: geometry.cameraWidth, floats: false,
-                                        bodyHeight: geometry.stripBodyHeight, side: mascotSide)
+        var track = NotchMascotSupport.track(stripWidth: width, stripHeight: geometry.stripHeight,
+            wing: wing, cameraWidth: geometry.cameraWidth, floats: false,
+            bodyHeight: geometry.stripBodyHeight, side: mascotSide)
+        track.height = expandedSize.height
+        track.baseline = expandedSize.height / 2
+        track.rest = mascotSide == .left ? 16 : width - 16
+        return track
     }
 
     // MARK: Command Bar
@@ -4647,7 +4654,7 @@ extension NotchService {
         windowHost?.bridgeMascot(look: NotchMascotSupport.look(),
                                  size: NotchMascotSupport.size(stripHeight: geometry.stripHeight, floats: false),
                                  mood: mascotRestingMood, from: from, to: to,
-                                 baseline: geometry.stripHeight / 2 + 0.5, duration: duration, scale: scale,
+                                 baseline: expanded ? expandedSize.height / 2 : geometry.stripHeight / 2, duration: duration, scale: scale,
                                  trailsGrowth: trailsGrowth, hop: hop)
     }
 

@@ -31,6 +31,14 @@ enum NotchVolumeFeedbackTests {
         }
     }
 
+    enum SystemOutputControl {
+        static let shared = Output()
+        final class Output {
+            var volume: Double? { AppVolumeMixer.shared.systemOutputVolume }
+            var muted: Bool? { AppVolumeMixer.shared.systemOutputMuted }
+        }
+    }
+
     class State {
         var subscriptions = Set<AnyCancellable>()
         var volumeDeviceUID: String?

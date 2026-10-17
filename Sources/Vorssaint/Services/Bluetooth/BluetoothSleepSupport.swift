@@ -44,7 +44,8 @@ struct BluetoothAudioRecoveryPolicy {
     private(set) var reconnectedWithinEpisode = false
     private var absentSince: Date?
 
-    mutating func observe(uid: String?, now: Date, previousAttempt: Date?) -> Bool {
+    mutating func observe(uid: String?, now: Date, previousAttempt: Date?,
+                          selectedUIDs: Set<String>) -> Bool {
         reconnectedWithinEpisode = false
         if !sampledInitialRoute {
             sampledInitialRoute = true
@@ -67,6 +68,7 @@ struct BluetoothAudioRecoveryPolicy {
             return false
         }
         lastConnectedUID = uid
+        guard selectedUIDs.contains(uid) else { return false }
         // Bluetooth may re-enumerate with a different Core Audio UID after a
         // daemon restart, so the minimum interval applies across all devices.
         if let previousAttempt, now.timeIntervalSince(previousAttempt) < Self.cooldown { return false }

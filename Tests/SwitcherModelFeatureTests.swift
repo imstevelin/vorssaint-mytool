@@ -1986,10 +1986,10 @@ enum SwitcherModelFeatureTests {
         // decision above is made consciously, never by omission.
         let releasePlist = NSDictionary(contentsOfFile: "Resources/Info.plist")
         let plistVersion = (releasePlist?["CFBundleShortVersionString"] as? String) ?? ""
-        suite.expect(plistVersion == "1.0.3",
+        suite.expect(plistVersion == "1.0.9",
                "bumping the app version requires re-deciding the support prompt pin above")
         let plistBuild = (releasePlist?["CFBundleVersion"] as? String) ?? ""
-        suite.expect(plistBuild == "4",
+        suite.expect(plistBuild == "10",
                "every app version needs its own incremented bundle build")
         suite.expect(SupportUpdateIntroInfo.releaseVersion == "3.4.1",
                "the support prompt is prepared for the 3.4.1 stable release")
@@ -2959,12 +2959,12 @@ enum SwitcherModelFeatureTests {
                "Keep Awake panel section is shown by default")
         suite.expect(registeredDefaults[DefaultsKey.panelShowBrightness] as? Bool == true,
                "brightness panel section is shown by default once the feature is on")
-        suite.expect(registeredDefaults[DefaultsKey.brightnessControlEnabled] as? Bool == false,
-               "brightness control arrives switched off")
-        suite.expect(registeredDefaults[DefaultsKey.brightnessKeysEnabled] as? Bool == false,
-               "pointer-following brightness keys arrive switched off")
-        suite.expect(registeredDefaults[DefaultsKey.brightnessOSDEnabled] as? Bool == false,
-               "brightness adjustment overlay arrives switched off")
+        suite.expect(registeredDefaults[DefaultsKey.brightnessControlEnabled] as? Bool == true,
+               "the fork preserves its enabled-by-default brightness control")
+        suite.expect(registeredDefaults[DefaultsKey.brightnessKeysEnabled] as? Bool == true,
+               "the fork preserves its enabled-by-default native brightness keys")
+        suite.expect(registeredDefaults[DefaultsKey.brightnessOSDEnabled] as? Bool == true,
+               "the fork preserves its enabled-by-default brightness overlay")
         suite.expect(registeredDefaults[DefaultsKey.keyboardBrightnessDecreaseShortcut] as? String
                 == GlobalShortcut.keyboardBrightnessDecreaseDefault.storageValue
                 && registeredDefaults[DefaultsKey.keyboardBrightnessIncreaseShortcut] as? String

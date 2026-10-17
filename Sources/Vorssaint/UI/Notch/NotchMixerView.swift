@@ -195,22 +195,23 @@ private struct NotchMasterFader: View {
     let height: CGFloat
     @Binding var editingVolumeID: String?
     @ObservedObject private var mixer = AppVolumeMixer.shared
+    @ObservedObject private var output = SystemOutputControl.shared
     @ObservedObject private var l10n = L10n.shared
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    private var level: Double? { mixer.systemOutputVolume.map { mixer.systemOutputMuted == true ? 0 : $0 } }
-    private var muted: Bool { mixer.systemOutputMuted == true }
+    private var level: Double? { output.volume.map { output.muted == true ? 0 : $0 } }
+    private var muted: Bool { output.muted == true }
 
     /// The fader already shows the level it sets, so the open header keeps
     /// its title instead of repeating it.
     private func adjustOutput(volume: Double? = nil, muted: Bool? = nil) {
         NotchService.shared.noteOwnVolumeAdjustment()
-        mixer.requestOutputAdjustment(volume: volume, muted: muted)
+        output.requestAdjustment(volume: volume, muted: muted)
     }
 
     var body: some View {
         VStack(spacing: 6) {
             Button {
-                if let muted = mixer.systemOutputMuted { adjustOutput(muted: !muted) }
+                if let muted = output.muted { adjustOutput(muted: !muted) }
             } label: {
                 Image(systemName: muted ? "speaker.slash.fill" : "speaker.wave.2.fill")
                     .font(.system(size: 15, weight: .medium))
@@ -221,7 +222,7 @@ private struct NotchMasterFader: View {
                     .contentShape(Circle())
             }
             .buttonStyle(NotchButtonStyle(cornerRadius: 14))
-            .disabled(mixer.systemOutputMuted == nil)
+            .disabled(output.muted == nil)
             .accessibilityLabel(muted ? l10n.s.actionUnmute : l10n.s.actionMute)
             if let level {
                 NotchLevelSlider(value: Binding(get: { level }, set: { adjustOutput(volume: $0) }),

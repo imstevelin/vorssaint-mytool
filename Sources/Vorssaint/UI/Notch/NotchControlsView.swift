@@ -185,9 +185,10 @@ struct NotchAudioControls: View {
     var style: NotchLevelStyle = .card
     var showsDevice = true
     @ObservedObject private var mixer = AppVolumeMixer.shared
+    @ObservedObject private var output = SystemOutputControl.shared
     @ObservedObject private var l10n = L10n.shared
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    private var level: Double? { mixer.systemOutputVolume.map { mixer.systemOutputMuted == true ? 0 : $0 } }
+    private var level: Double? { output.volume.map { output.muted == true ? 0 : $0 } }
     private var deviceName: String {
         mixer.outputDevices.first(where: { $0.uid == mixer.currentOutputDeviceUID })?.name ?? l10n.s.mixerSystemOutputTitle
     }
@@ -260,24 +261,24 @@ struct NotchAudioControls: View {
     /// header keeps its title instead of repeating it.
     private func adjustOutput(volume: Double? = nil, muted: Bool? = nil) {
         notch.noteOwnVolumeAdjustment()
-        mixer.requestOutputAdjustment(volume: volume, muted: muted)
+        output.requestAdjustment(volume: volume, muted: muted)
     }
 
     private var mute: some View {
         Button {
-            if let muted = mixer.systemOutputMuted { adjustOutput(muted: !muted) }
+            if let muted = output.muted { adjustOutput(muted: !muted) }
         } label: {
-            Image(systemName: mixer.systemOutputMuted == true ? "speaker.slash.fill" : "speaker.wave.2.fill")
+            Image(systemName: output.muted == true ? "speaker.slash.fill" : "speaker.wave.2.fill")
                 .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(mixer.systemOutputMuted == true ? Color.red : Color.white)
+                .foregroundStyle(output.muted == true ? Color.red : Color.white)
                 .contentTransition(.symbolEffect(.replace))
-                .animation(reduceMotion ? nil : .smooth(duration: 0.24), value: mixer.systemOutputMuted)
+                .animation(reduceMotion ? nil : .smooth(duration: 0.24), value: output.muted)
                 .frame(width: 18, height: 18)
                 .contentShape(Rectangle())
         }
         .buttonStyle(NotchButtonStyle(cornerRadius: 6))
-        .disabled(mixer.systemOutputMuted == nil)
-        .accessibilityLabel(mixer.systemOutputMuted == true ? l10n.s.actionUnmute : l10n.s.actionMute)
+        .disabled(output.muted == nil)
+        .accessibilityLabel(output.muted == true ? l10n.s.actionUnmute : l10n.s.actionMute)
     }
 
     @ViewBuilder private var slider: some View {

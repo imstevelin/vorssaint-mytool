@@ -50,6 +50,7 @@ private final class RecorderSession: NSObject, RecorderCaptureEngineDelegate {
     /// from the capture queue while the main thread watches the clock.
     private let writer: RecorderWriter
 
+    private(set) var pointerStorageFailure: Error?
     var onUnexpectedStop: ((RecorderFailure) -> Void)?
     var onMicrophoneUnavailable: (() -> Void)?
 
@@ -202,7 +203,11 @@ private final class RecorderSession: NSObject, RecorderCaptureEngineDelegate {
                                                      streamHeardSound: streamHeard.value),
                 forKey: DefaultsKey.recorderSystemAudioTapVerified)
         }
-        let (track, typingTrack) = await MainActor.run { (pointer.stop(), typing.stop()) }
+        async let pointerTrack = pointer.stop()
+        let typingTrack = await MainActor.run { typing.stop() }
+        let track: RecorderPointerTrack
+        do { track = try await pointerTrack }
+        catch { pointerStorageFailure = error; track = RecorderPointerTrack() }
         writerQueue.sync {}
         let written = await writer.finish(at: end)
         if written, !track.isEmpty {
@@ -661,6 +666,11 @@ final class ScreenRecorderService: ObservableObject {
             self.isFinishing = false
             if written {
                 self.deliver(session.take, reason: reason)
+                if let error = session.pointerStorageFailure {
+                    // Preserve the successfully recorded movie and disclose a
+                    // failed cursor handoff rather than silently truncating it.
+                    QuickToolHUD.show(icon: "cursorarrow", message: error.localizedDescription)
+                }
             } else {
                 RecorderTakeStore.shared.delete(session.take)
                 QuickToolHUD.show(icon: "record.circle", message: self.strings.recordFailed)

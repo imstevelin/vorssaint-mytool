@@ -41,6 +41,7 @@ struct MetricsTests {
                 AppManagementFeatureTests.run(suite)
                 DiskImageHomebrewTests.run(suite)
             }),
+            ("resource-usage", { ResourceUsageTests.run(suite) }),
             ("window-layout", { WindowLayoutFeatureTests.run(suite) }),
             ("media", { MediaFeatureTests.run(suite) }),
             ("mixer", {
@@ -130,6 +131,11 @@ struct MetricsTests {
                 DisplayRestorationTests.run(suite)
                 BrightnessStepTests.run(suite)
                 BrightnessKeyRoutingTests.run(suite)
+                SystemOutputControlTests.run(suite)
+                DisplayAudioBurstTests.run(suite)
+                HiDPIRefreshRateTests.run(suite)
+                DisplayReconnectTimingTests.run(suite)
+                DisplayColorPipelineTests.run(suite)
             }),
             ("software-dimming", { SoftwareDimmingRouteTests.run { suite.expect($0, $1) } }),
             ("capture", { ScreenshotSelectionRefreshContract.run(suite) }),

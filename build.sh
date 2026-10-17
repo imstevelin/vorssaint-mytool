@@ -43,14 +43,14 @@ for arg in "$@"; do
 done
 
 if (( DEV )); then
-    APP_NAME="vorssaint-imstevelin (Developer)"
+    APP_NAME="實用小工具 (Developer)"
     EXECUTABLE="VorssaintImstevelinDeveloper"
     APP_BUNDLE_ID="com.imstevelin.vorssaint-imstevelin.dev"
     BUILD_VARIANT_FLAGS=(-D VORSSAINT_DEVELOPMENT)
     APP_OPTIMIZATION_FLAGS=(-Onone)
     BUILD_CONFIGURATION="debug"
 else
-    APP_NAME="vorssaint-imstevelin"
+    APP_NAME="實用小工具"
     EXECUTABLE="VorssaintImstevelin"
     APP_BUNDLE_ID="com.imstevelin.vorssaint-imstevelin"
     BUILD_VARIANT_FLAGS=()
@@ -251,6 +251,7 @@ if (( TEST )); then
     mkdir -p "$TEST_OBJECT_DIR"
     TEST_SOURCES=(
         Sources/Vorssaint/Services/Media/MediaSupport.swift
+        Sources/Vorssaint/Services/Media/MediaVideoTargetEncoder.swift
         Sources/Vorssaint/Core/QuitProtectionSupport.swift
         Sources/Vorssaint/Core/QuitProtectionStrings.swift
         Sources/Vorssaint/Core/Defaults.swift
@@ -379,6 +380,7 @@ if (( TEST )); then
         Sources/Vorssaint/Services/Recorder/RecorderTakeStore.swift
         Sources/Vorssaint/Services/Recorder/RecorderPresetImageStore.swift
         Sources/Vorssaint/Services/Recorder/RecorderMotion.swift
+        Sources/Vorssaint/Services/Recorder/RecorderPointerSpool.swift
         Sources/Vorssaint/Services/Recorder/RecorderPointerTrack.swift
         Sources/Vorssaint/Services/Recorder/RecorderTypingTrack.swift
         Sources/Vorssaint/Services/Recorder/RecorderTimeline.swift
@@ -534,6 +536,10 @@ if (( TEST )); then
         Sources/Vorssaint/Services/Metrics/TemperatureSensorSelector.swift
         Sources/Vorssaint/Services/Metrics/SustainedAlertGate.swift
         Sources/Vorssaint/Services/WindowLayout/WindowLayoutSupport.swift
+        Sources/Vorssaint/Services/Switcher/AXWindowResolver.swift
+        Sources/Vorssaint/Services/WindowLayout/DisplayWindowAXCache.swift
+        Sources/Vorssaint/Services/WindowServerSnapshot.swift
+        Sources/Vorssaint/Services/WindowLayout/DisplayWindowProfileStore.swift
         Sources/Vorssaint/Services/WindowLayout/DisplayWindowMemorySupport.swift
         Sources/Vorssaint/Core/DisplayWindowMemoryStrings.swift
         Sources/Vorssaint/Services/WindowLayout/WindowGestureSupport.swift
@@ -545,6 +551,7 @@ if (( TEST )); then
         Sources/Vorssaint/Services/CleaningMode/CleaningMouseReleaseGate.swift
         Sources/Vorssaint/Services/Display/ExtraBrightnessSupport.swift
         Sources/Vorssaint/Services/Display/BrightnessSupport.swift
+        Sources/Vorssaint/Services/Display/DisplayKeyRoutingSupport.swift
         Sources/Vorssaint/Services/Display/LidDimmingSupport.swift
         Sources/Vorssaint/Services/Cleaner/CleanerSupport.swift
         Sources/Vorssaint/Services/Cleaner/CleanerPolicy.swift
@@ -573,8 +580,22 @@ if (( TEST )); then
     exit $test_status
 fi
 
+echo "▸ Compiling virtual display bridge…"
+mkdir -p build/objects/VirtualDisplayBridge
+clang -c -fblocks -fno-objc-arc -target "$TARGET" -isysroot "$SDK" \
+    -I Sources/VirtualDisplayBridge/include Sources/VirtualDisplayBridge/VirtualDisplayBridge.m \
+    -o build/objects/VirtualDisplayBridge/VirtualDisplayBridge.o
+swiftc -O -target "$TARGET" -sdk "$SDK" "${SDK_COMPAT_FLAGS[@]}" \
+    Sources/DisplayRecoverySupport/DisplayRecoverySnapshot.swift Sources/DisplayRecoveryHelper/main.swift \
+    -o build/objects/VirtualDisplayBridge/DisplayRecoveryHelper
+
+swiftc -O -target "$TARGET" -sdk "$SDK" "${SDK_COMPAT_FLAGS[@]}" \
+    -I Sources/VirtualDisplayBridge/include build/objects/VirtualDisplayBridge/VirtualDisplayBridge.o \
+    Sources/DisplayRecoverySupport/DisplayRecoverySnapshot.swift Sources/VirtualDisplayHost/main.swift \
+    -o build/objects/VirtualDisplayBridge/VirtualDisplayHost
+
 echo "▸ Compiling ($BUILD_CONFIGURATION) against $(basename "$SDK")…"
-APP_SOURCES=(Sources/Vorssaint/**/*.swift)
+APP_SOURCES=(Sources/Vorssaint/**/*.swift Sources/DisplayRecoverySupport/*.swift)
 if (( ! DEV )); then
     # A release starts from an empty build directory, so nothing an earlier
     # build left behind (an old icon catalog, a staged bundle) can reach it.
@@ -594,6 +615,7 @@ swiftc "${APP_OPTIMIZATION_FLAGS[@]}" -incremental -enable-batch-mode -j "$(sysc
     -output-file-map "$APP_OUTPUT_FILE_MAP" \
     -target "$TARGET" -sdk "$SDK" "${SDK_COMPAT_FLAGS[@]}" "${VM_STATISTICS_COMPAT_FLAGS[@]}" "${HID_EVENT_SYSTEM_FLAGS[@]}" \
     "${BUILD_VARIANT_FLAGS[@]}" \
+    -I Sources/VirtualDisplayBridge/include build/objects/VirtualDisplayBridge/VirtualDisplayBridge.o \
     "${APP_SOURCES[@]}" -o "build/$EXECUTABLE"
 
 echo "▸ Compiling protected fan helper…"
@@ -626,6 +648,10 @@ STAGE="$STAGE_TMP/$APP_NAME.app"
 mkdir -p "$STAGE/Contents/MacOS" "$STAGE/Contents/Resources" \
     "$STAGE/Contents/Library/LaunchDaemons" "$STAGE/Contents/Library/LaunchServices"
 cp "build/$EXECUTABLE" "$STAGE/Contents/MacOS/$EXECUTABLE"
+mkdir -p "$STAGE/Contents/Helpers" "$STAGE/Contents/Resources/ThirdParty"
+cp build/objects/VirtualDisplayBridge/DisplayRecoveryHelper "$STAGE/Contents/Helpers/DisplayRecoveryHelper"
+cp build/objects/VirtualDisplayBridge/VirtualDisplayHost "$STAGE/Contents/Helpers/VirtualDisplayHost"
+cp ThirdParty/HiDPIScaler-LICENSE ThirdParty/MonitorControl-LICENSE "$STAGE/Contents/Resources/ThirdParty/"
 cp "build/$FAN_HELPER_ID" "$STAGE/Contents/Library/LaunchServices/$FAN_HELPER_ID"
 mkdir -p "$STAGE/Contents/Frameworks"
 cp "build/$NOW_PLAYING_ADAPTER" "$STAGE/Contents/Frameworks/$NOW_PLAYING_ADAPTER"
@@ -739,6 +765,8 @@ codesign_now_playing_adapter() {
 
 sign_bundle() {
     local bundle="$1"
+    codesign_app "$bundle/Contents/Helpers/DisplayRecoveryHelper"
+    codesign_app "$bundle/Contents/Helpers/VirtualDisplayHost"
     local executable="$bundle/Contents/MacOS/$EXECUTABLE"
     local helper="$bundle/Contents/Library/LaunchServices/$FAN_HELPER_ID"
     local adapter="$bundle/Contents/Frameworks/$NOW_PLAYING_ADAPTER"

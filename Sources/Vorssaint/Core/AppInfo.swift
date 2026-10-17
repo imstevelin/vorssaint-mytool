@@ -5,7 +5,7 @@ import Foundation
 
 /// Static identity of the app, shared by UI, notifications and tooling.
 enum AppInfo {
-    static let name = "vorssaint-imstevelin"
+    static let name = "實用小工具"
     static let copyright = "© 2026 Vorssaint contributors · Unofficial fork by imstevelin"
     static let websiteURL = URL(string: "https://github.com/imstevelin/vorssaint-mytool")!
     static let repositoryURL = URL(string: "https://github.com/imstevelin/vorssaint-mytool")!

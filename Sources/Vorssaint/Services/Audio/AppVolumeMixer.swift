@@ -17,6 +17,7 @@ struct MixerOutputDevice: Identifiable, Equatable {
     let canBeDefaultOutput: Bool
     let canBeDefaultSystemOutput: Bool
     let priorityTier: MixerRoutingSupport.PriorityTier
+    var isDisplayAudio = false
     fileprivate let audioObjectID: AudioObjectID
 }
 
@@ -207,7 +208,9 @@ final class AppVolumeMixer: ObservableObject {
     /// output switcher. The per-app portion still follows only Volume mixer.
     func syncWithPreferences() {
         let needs = MixerRoutingSupport.observationNeeds(isAvailable: { $0.isAvailable })
-        guard needs.devices else {
+        let needsDisplayAudio = AppFeature.brightness.isAvailable
+            && UserDefaults.standard.bool(forKey: DefaultsKey.brightnessControlEnabled)
+        guard needs.devices || needsDisplayAudio else {
             stop()
             return
         }
@@ -1314,6 +1317,8 @@ final class AppVolumeMixer: ObservableObject {
         }
         subscribeToOutputControls(of: snapshot.defaultDeviceID)
         applyOutputControls(volume: snapshot.systemOutputVolume, muted: snapshot.systemOutputMuted)
+        // Output UID and native volume availability determine the DDC key route.
+        DispatchQueue.main.async { PreciseVolumeRollerService.shared.syncWithPreferences() }
 
         guard let next = snapshot.apps else {
             if !apps.isEmpty {
@@ -2075,6 +2080,8 @@ final class AppVolumeMixer: ObservableObject {
                                              canBeDefaultSystemOutput: canBeDefaultSystemOutput,
                                              priorityTier: MixerRoutingSupport.PriorityTier(
                                                 transportType: transportType),
+                                             isDisplayAudio: transportType == kAudioDeviceTransportTypeHDMI
+                                                || transportType == kAudioDeviceTransportTypeDisplayPort,
                                              audioObjectID: deviceID))
         }
 
@@ -2751,7 +2758,7 @@ private final class TapGainEngine: GainEngine {
         levelWatch = LevelCompensationWatch.started(objects: objects) { compensation.value = $0 }
 
         let aggregate: [String: Any] = [
-            kAudioAggregateDeviceNameKey: "Vorssaint Mixer",
+            kAudioAggregateDeviceNameKey: "實用小工具 Mixer",
             kAudioAggregateDeviceUIDKey: UUID().uuidString,
             kAudioAggregateDeviceIsPrivateKey: true,
             kAudioAggregateDeviceMainSubDeviceKey: outputDeviceUID,
@@ -3029,7 +3036,7 @@ private final class AirPlayGainEngine: GainEngine {
         let aggregate: [String: Any] = [
             // A fixed name, listed in MicMuteSupport.ownDeviceNames, so no
             // device list ever offers this private aggregate as an output.
-            kAudioAggregateDeviceNameKey: "Vorssaint AirPlay",
+            kAudioAggregateDeviceNameKey: "實用小工具 AirPlay",
             kAudioAggregateDeviceUIDKey: UUID().uuidString,
             kAudioAggregateDeviceIsPrivateKey: true,
             kAudioAggregateDeviceMainSubDeviceKey: clockDeviceUID,

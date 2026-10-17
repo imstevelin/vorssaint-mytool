@@ -263,8 +263,8 @@ struct MixerSection: View {
         if inNotch {
             // The slider shows the level; the island's header need not repeat it.
             NotchService.shared.noteOwnVolumeAdjustment()
-            mixer.requestOutputAdjustment(volume: value)
-        } else { mixer.setCurrentOutputVolume(value) }
+        }
+        SystemOutputControl.shared.requestAdjustment(volume: value)
     }
 
     private var systemOutputVolumeBinding: Binding<Double> {
@@ -561,6 +561,7 @@ struct MixerOptionsControls: View {
             }
             headphoneDisconnectProtectionToggle
             preciseVolumeRollerToggle
+            VolumeFeedbackSoundToggle()
             if includeSharedAudioFeatures, AppFeature.soundOutputSwitcher.isAvailable {
                 SoundOutputSwitcherControls()
             }
@@ -1492,3 +1493,24 @@ private struct LiquidGlassMixerSlider: View {
     }
 }
 #endif
+
+/// Shared preference for mixer, island and external-display audio controls.
+struct VolumeFeedbackSoundToggle: View {
+    @ObservedObject private var l10n = L10n.shared
+    @AppStorage(DefaultsKey.volumeFeedbackSoundEnabled)
+    private var enabled = VolumeFeedbackSound.enabled
+    var compact = true
+    var body: some View {
+        let strings = VolumeFeedbackStrings.localized(l10n.language)
+        VStack(alignment: .leading, spacing: 3) {
+            Toggle(strings.title, isOn: $enabled)
+                .onChange(of: enabled) { _, _ in VolumeFeedbackSound.shared.prepare() }
+                .toggleStyle(.checkbox)
+                .font(compact ? .system(size: 11.5, weight: .medium) : .body)
+            Text(strings.caption)
+                .font(compact ? .system(size: 9.5) : .caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+}

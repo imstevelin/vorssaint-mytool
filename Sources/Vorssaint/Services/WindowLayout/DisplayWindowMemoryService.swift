@@ -26,11 +26,40 @@ final class DisplayWindowMemoryService {
         var lastSeen: Date
     }
 
+    private let queryQueue = DispatchQueue(label: "com.vorssaint.window-memory-query", qos: .utility)
+    private let persistenceQueue = DispatchQueue(label: "com.vorssaint.window-memory-save", qos: .utility)
+    private let axCache = DisplayWindowAXCache()
+    private let profileStore = DisplayWindowProfileStore()
+    private var storeLoaded = false
+    private var removing = false
+    private var loadingStore = false
+    private var queryInFlight = false
+    private var lifecycleGeneration = 0
+    private var eventVersions: [pid_t: Int] = [:]
+    private var eventWork: DispatchWorkItem?
+    private var persistenceInFlight = false
+    private var persistencePending = false
+    private var activeProfiles: [String: Set<String>] = [:]
+    private var persistedProfiles: [String: [String: RememberedWindowGeometry]] = [:]
+    private var profileTouches: [String: [String: TimeInterval]] = [:]
+    private lazy var windowEvents = DisplayWindowEventObserver { [weak self] pid in
+        guard let self, self.timer != nil else { return }
+        self.eventVersions[pid, default: 0] += 1
+        self.queryQueue.async { [self] in self.axCache.invalidate(pid: pid) }
+        guard self.eventWork == nil else { return }
+        let work = DispatchWorkItem { [weak self] in
+            self?.eventWork = nil
+            self?.scan()
+        }
+        self.eventWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05, execute: work)
+    }
     private let defaults = UserDefaults.standard
     private var memory: DisplayWindowMemory
     private var salt: String
     private var observations: [CGWindowID: Observation] = [:]
     private var knownDisplays = Set<String>()
+    private var knownDisplayGeometry: [String: CGRect] = [:]
     private var timer: Timer?
     private var displayObserver: NSObjectProtocol?
     private var scanResumeAt = Date.distantPast
@@ -56,13 +85,15 @@ final class DisplayWindowMemoryService {
     }
 
     func syncWithPreferences() {
+        guard !removing else { return }
         let wanted = AppFeature.windowLayout.isAvailable
             && (defaults.bool(forKey: DefaultsKey.windowRememberSizes)
                 || defaults.bool(forKey: DefaultsKey.windowRestoreDisplayLayout))
             && AXIsProcessTrusted() && SessionActivity.shared.isActive
         guard wanted else { stop(); return }
         guard timer == nil else { return }
-        knownDisplays = Set(NSScreen.screens.compactMap(displayKey))
+        knownDisplayGeometry = displayGeometry()
+        knownDisplays = Set(knownDisplayGeometry.keys)
         displayObserver = NotificationCenter.default.addObserver(
             forName: NSApplication.didChangeScreenParametersNotification,
             object: nil, queue: .main
@@ -73,7 +104,41 @@ final class DisplayWindowMemoryService {
         scan()
     }
 
+    /// Called before process termination, after normal updates are stopped.
+    /// Normal saving is asynchronous; this final barrier preserves the latest
+    /// geometry even when its earlier completion has not reached main yet.
+    func flush() {
+        guard !removing else { return }
+        guard storeLoaded else { queryQueue.sync {}; return }
+        let snapshot = memory
+        persistenceQueue.sync { [self] in
+            if profileStore.save(snapshot) {
+                if defaults.data(forKey: DefaultsKey.windowDisplayMemory) != nil {
+                    defaults.removeObject(forKey: DefaultsKey.windowDisplayMemory)
+                }
+            } else if let data = try? JSONEncoder().encode(snapshot) {
+                defaults.set(data, forKey: DefaultsKey.windowDisplayMemory)
+            }
+        }
+    }
+
+    func suspend() { stop() }
+
+    /// Complete uninstall must drain background writes BEFORE removing the
+    /// app container; later termination callbacks must not recreate it.
+    func prepareForRemoval() {
+        removing = true
+        stop()
+        queryQueue.sync {}
+        persistenceQueue.sync {}
+        profileStore.close()
+    }
+
     private func stop() {
+        lifecycleGeneration += 1
+        eventWork?.cancel(); eventWork = nil
+        windowEvents.stop()
+        queryQueue.async { [self] in axCache.invalidate() }
         timer?.invalidate()
         timer = nil
         if let displayObserver { NotificationCenter.default.removeObserver(displayObserver) }
@@ -83,9 +148,40 @@ final class DisplayWindowMemoryService {
         transitionGeneration += 1
     }
 
+    private var managedDisplayTransition = false
+    func beginManagedDisplayTransition() {
+        managedDisplayTransition = true
+        transitionGeneration += 1
+        // Keep the reconnect offer frozen until the final HiDPI geometry exists.
+        // Clearing it here loses full-layout restoration for the new monitor.
+    }
+    func endManagedDisplayTransition() {
+        managedDisplayTransition = false
+        observations.removeAll()
+        let geometry = displayGeometry()
+        let current = Set(geometry.keys)
+        pendingLayoutDisplays.formUnion(DisplayWindowMemorySupport.newlyConnected(
+            previous: knownDisplays, current: current))
+        pendingLayoutDisplays.formIntersection(current)
+        knownDisplayGeometry = geometry
+        knownDisplays = current
+        captureResumeAt = Date().addingTimeInterval(2)
+        // HiDPI has already verified its final mode. Only allow the apps a
+        // short geometry settle, then restore instead of waiting for polling.
+        scanResumeAt = Date().addingTimeInterval(0.2)
+        let generation = transitionGeneration
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
+            guard let self, self.transitionGeneration == generation, self.timer != nil else { return }
+            self.scan()
+        }
+    }
+
     private func displayConfigurationChanged() {
-        let current = Set(NSScreen.screens.compactMap(displayKey))
-        guard current != knownDisplays else { return }
+        guard !managedDisplayTransition else { return }
+        let geometry = displayGeometry()
+        let current = Set(geometry.keys)
+        guard geometry != knownDisplayGeometry else { return }
+        knownDisplayGeometry = geometry
         let added = DisplayWindowMemorySupport.newlyConnected(previous: knownDisplays, current: current)
         knownDisplays = current
         pendingLayoutDisplays.formUnion(added)
@@ -103,7 +199,112 @@ final class DisplayWindowMemoryService {
     }
 
     private func scan() {
-        guard AXIsProcessTrusted(), SessionActivity.shared.isActive,
+        guard timer != nil, !managedDisplayTransition, AXIsProcessTrusted(),
+              SessionActivity.shared.isActive, Date() >= scanResumeAt else { return }
+        if NSEvent.pressedMouseButtons != 0 {
+            interactionResumeAt = Date().addingTimeInterval(0.25)
+            return // No AX traffic while dragging; retain the restore opportunity.
+        }
+        guard Date() >= interactionResumeAt, !queryInFlight else { return }
+        guard storeLoaded else {
+            guard !loadingStore else { return }
+            loadingStore = true
+            let hasLegacy = defaults.data(forKey: DefaultsKey.windowDisplayMemory) != nil
+            queryQueue.async { [self] in
+                let stored = profileStore.load()
+                DispatchQueue.main.async { [self] in
+                    if let stored, !hasLegacy { memory = stored }
+                    storeLoaded = true
+                    loadingStore = false
+                    // Import legacy title profiles before allowing eviction.
+                    if stored == nil || hasLegacy { persist() }
+                    scan()
+                }
+            }
+            return
+        }
+        let candidates = visibleWindows()
+        let generation = lifecycleGeneration
+        let transition = transitionGeneration
+        let events = eventVersions
+        queryInFlight = true
+        let keys = candidates.map { DisplayWindowAXCache.Key(pid: $0.pid, id: $0.id) }
+        let profileRequests = candidates.compactMap { window -> (String, String)? in
+            guard let display = displayKey(window.screen), let title = window.titleDigest else { return nil }
+            let key = DisplayWindowMemorySupport.profileKey(bundleID: window.bundleID, titleDigest: title)
+            guard memory.displays[display]?.openingFrames?[key] == nil else { return nil }
+            return (display, key)
+        }
+        queryQueue.async { [self] in
+            let resolved = axCache.resolve(keys)
+            var profiles: [String: [String: RememberedWindowGeometry]] = [:]
+            for (display, key) in profileRequests {
+                if let profile = profileStore.profile(display: display, key: key) {
+                    profiles[display, default: [:]][key] = profile
+                }
+            }
+            DispatchQueue.main.async { [self] in
+                queryInFlight = false
+                guard timer != nil, lifecycleGeneration == generation,
+                      transitionGeneration == transition,
+                      !managedDisplayTransition, SessionActivity.shared.isActive else { return }
+                if NSEvent.pressedMouseButtons != 0 {
+                    interactionResumeAt = Date().addingTimeInterval(0.25)
+                    return
+                }
+                // AX may have waited on another app. Never learn or restore a
+                // geometry that moved while the query was outstanding.
+                let current = visibleWindows()
+                func identities(_ windows: [VisibleWindow]) -> [CGWindowID: DisplayWindowMemorySupport.SnapshotIdentity] {
+                    Dictionary(windows.map { ($0.id, .init(pid: $0.pid, bundleID: $0.bundleID, frame: $0.frame)) },
+                               uniquingKeysWith: { first, _ in first })
+                }
+                let valid = DisplayWindowMemorySupport.validSnapshotIDs(previous: identities(candidates),
+                    current: identities(current), previousEvents: events, currentEvents: eventVersions)
+                let complete = valid.count == candidates.count && valid.count == current.count
+                windowEvents.update(resolved.elements)
+                activeProfiles.removeAll(keepingCapacity: true)
+                let now = ProcessInfo.processInfo.systemUptime
+                for window in current {
+                    guard let display = displayKey(window.screen) else { continue }
+                    let key = DisplayWindowMemorySupport.profileKey(bundleID: window.bundleID, titleDigest: window.titleDigest)
+                    activeProfiles[display, default: []].insert(key)
+                    if memory.displays[display]?.openingFrames?[key] != nil || profiles[display]?[key] != nil {
+                        profileTouches[display, default: [:]][key] = now
+                    }
+                }
+                for (display, items) in profiles {
+                    var stored = memory.displays[display] ?? RememberedDisplay()
+                    stored.openingFrames = (stored.openingFrames ?? [:]).merging(items) { current, _ in current }
+                    memory.displays[display] = stored
+                    persistedProfiles[display, default: [:]].merge(items) { _, cold in cold }
+                }
+                trimHotProfiles()
+                let queriedTitles = Dictionary(candidates.map { ($0.id, $0.titleDigest) }, uniquingKeysWith: { first, _ in first })
+                let deferredOpenings = Set(current.compactMap { window -> CGWindowID? in
+                    guard window.titleDigest != (queriedTitles[window.id] ?? nil),
+                          let title = window.titleDigest, let display = displayKey(window.screen),
+                          memory.displays[display]?.openingFrames?[
+                            DisplayWindowMemorySupport.profileKey(bundleID: window.bundleID, titleDigest: title)] == nil
+                    else { return nil }
+                    return window.id
+                })
+                processWindows(current.filter {
+                    valid.contains($0.id) && resolved.eligible.contains(.init(pid: $0.pid, id: $0.id))
+                }, capturesLayout: complete, deferredOpeningWindows: deferredOpenings)
+                if !deferredOpenings.isEmpty {
+                    // A title changed during AX I/O. Look up its cold profile
+                    // promptly rather than consuming the restore with an app
+                    // fallback before that document's profile is available.
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in self?.scan() }
+                }
+            }
+        }
+    }
+
+    private func processWindows(_ windows: [VisibleWindow], capturesLayout: Bool = true,
+                                deferredOpeningWindows: Set<CGWindowID> = []) {
+        guard !managedDisplayTransition, AXIsProcessTrusted(), SessionActivity.shared.isActive,
               Date() >= scanResumeAt else { return }
         let now = Date()
         if NSEvent.pressedMouseButtons != 0 {
@@ -111,17 +312,19 @@ final class DisplayWindowMemoryService {
         }
         let interacting = now < interactionResumeAt
         if !interacting, !pendingLayoutDisplays.isEmpty {
+            guard capturesLayout else { return } // Keep the full reconnect offer until the geometry settles.
             let displays = pendingLayoutDisplays
             pendingLayoutDisplays.removeAll()
             if defaults.bool(forKey: DefaultsKey.windowRestoreDisplayLayout) {
-                restoreLayouts(on: displays)
+                restoreLayouts(on: displays, available: windows)
                 captureResumeAt = now.addingTimeInterval(2)
                 return // Never capture the pre-placement WindowServer snapshot.
             }
         }
-        let windows = visibleWindows()
         let rememberSizes = defaults.bool(forKey: DefaultsKey.windowRememberSizes)
         var appliedFrame = false
+        var dirty = false
+        defer { if dirty { persist() } }
         if rememberSizes {
             for window in windows {
                 guard let display = displayKey(window.screen) else { continue }
@@ -131,28 +334,23 @@ final class DisplayWindowMemoryService {
                 }
                 let decision = DisplayWindowMemorySupport.action(
                     previous: previous?.state, display: display, frame: window.frame,
-                    now: now, interacting: interacting)
+                    now: now, interacting: interacting, generation: transitionGeneration)
                 if decision == .wait { continue }
                 if decision == .restore {
-                    let profile = memory.displays[display]
-                    let exact = profile?.sizes[DisplayWindowMemorySupport.profileKey(
-                        bundleID: window.bundleID, titleDigest: window.titleDigest)]
-                    let fallback = profile?.sizes[DisplayWindowMemorySupport.profileKey(
-                        bundleID: window.bundleID, titleDigest: nil)]
-                    if let target = exact ?? fallback {
-                        let desired = DisplayWindowMemorySupport.fittedFrame(
-                            CGRect(origin: window.frame.origin, size: target),
-                            within: usableBounds(window.screen))
-                        if !DisplayWindowMemorySupport.close(window.frame.size, desired.size) {
-                            appliedFrame = setFrame(desired, for: window) || appliedFrame
-                        }
+                    if deferredOpeningWindows.contains(window.id) { continue }
+                    if let desired = DisplayWindowMemorySupport.openingFrame(
+                        in: memory.displays[display], bundleID: window.bundleID,
+                        titleDigest: window.titleDigest, currentFrame: window.frame,
+                        displayBounds: displayBounds(window.screen), usableBounds: usableBounds(window.screen)),
+                       !DisplayWindowMemorySupport.close(window.frame, desired) {
+                        appliedFrame = setFrame(desired, for: window) || appliedFrame
                     }
                     // Consume the transition even if the app rejects the request.
                     // Retrying a stale frame fights manual moves and app size limits.
                     observations[window.id] = Observation(
                         pid: window.pid, bundleID: window.bundleID,
                         state: DisplayWindowObservation(display: display, frame: window.frame,
-                                                        stableSince: now), lastSeen: now)
+                                                        stableSince: now, generation: transitionGeneration), lastSeen: now)
                     continue
                 }
                 var observation = previous!
@@ -161,15 +359,17 @@ final class DisplayWindowMemoryService {
                     observation.state.frame = window.frame
                     observation.state.stableSince = now
                     observation.state.learned = false
-                } else if decision == .learn {
+                } else if decision == .learn, now >= captureResumeAt {
                     var stored = memory.displays[display] ?? RememberedDisplay()
-                    stored.sizes[DisplayWindowMemorySupport.profileKey(
-                        bundleID: window.bundleID, titleDigest: window.titleDigest)] = window.frame.size
-                    stored.sizes[DisplayWindowMemorySupport.profileKey(
-                        bundleID: window.bundleID, titleDigest: nil)] = window.frame.size
-                    memory.displays[display] = stored
+                    DisplayWindowMemorySupport.rememberOpeningFrame(
+                        window.frame, in: &stored, bundleID: window.bundleID,
+                        titleDigest: window.titleDigest, displayBounds: displayBounds(window.screen),
+                        usableBounds: usableBounds(window.screen))
+                    if memory.displays[display] != stored {
+                        memory.displays[display] = stored
+                        dirty = true
+                    }
                     observation.state.learned = true
-                    persist()
                 }
                 observations[window.id] = observation
             }
@@ -184,7 +384,7 @@ final class DisplayWindowMemoryService {
         }
         guard !interacting, !appliedFrame else { return }
 
-        if defaults.bool(forKey: DefaultsKey.windowRestoreDisplayLayout), now >= captureResumeAt {
+        if capturesLayout, defaults.bool(forKey: DefaultsKey.windowRestoreDisplayLayout), now >= captureResumeAt {
             var captured: [String: [RememberedWindow]] = [:]
             for window in windows {
                 guard let display = displayKey(window.screen) else { continue }
@@ -199,19 +399,20 @@ final class DisplayWindowMemoryService {
             var changed = false
             for (display, windows) in captured where !windows.isEmpty {
                 var stored = memory.displays[display] ?? RememberedDisplay()
-                if stored.windows != windows {
-                    stored.windows = windows
+                let canonical = DisplayWindowMemorySupport.canonicalLayout(windows)
+                if DisplayWindowMemorySupport.canonicalLayout(stored.windows) != canonical {
+                    stored.windows = windows // Retain the original matching order when geometry changes.
                     memory.displays[display] = stored
                     changed = true
                 }
             }
-            if changed { persist() }
+            dirty = dirty || changed
         }
     }
 
-    private func restoreLayouts(on displays: Set<String>) {
+    private func restoreLayouts(on displays: Set<String>, available windows: [VisibleWindow]) {
         guard !displays.isEmpty else { return }
-        var available = visibleWindows()
+        var available = windows
         for screen in NSScreen.screens {
             guard let key = displayKey(screen), displays.contains(key),
                   let saved = memory.displays[key]?.windows else { continue }
@@ -232,15 +433,56 @@ final class DisplayWindowMemoryService {
                     observations[window.id] = Observation(
                         pid: window.pid, bundleID: window.bundleID,
                         state: DisplayWindowObservation(display: key, frame: target,
-                                                        stableSince: Date()), lastSeen: Date())
+                                                        stableSince: Date(), generation: transitionGeneration), lastSeen: Date())
                 }
             }
         }
     }
 
     private func persist() {
-        guard let data = try? JSONEncoder().encode(memory) else { return }
-        defaults.set(data, forKey: DefaultsKey.windowDisplayMemory)
+        guard !removing else { return }
+        guard !persistenceInFlight else { persistencePending = true; return }
+        persistenceInFlight = true
+        persistencePending = false
+        let snapshot = memory
+        persistenceQueue.async { [self] in
+            let saved = profileStore.save(snapshot)
+            if saved {
+                if defaults.data(forKey: DefaultsKey.windowDisplayMemory) != nil {
+                    defaults.removeObject(forKey: DefaultsKey.windowDisplayMemory)
+                }
+            } else if let data = try? JSONEncoder().encode(snapshot) {
+                // Disk unavailable: retain the complete legacy representation.
+                defaults.set(data, forKey: DefaultsKey.windowDisplayMemory)
+            }
+            DispatchQueue.main.async { [self] in
+                persistenceInFlight = false
+                if saved {
+                    for (display, stored) in snapshot.displays {
+                        persistedProfiles[display, default: [:]].merge(stored.openingFrames ?? [:]) { _, committed in committed }
+                    }
+                    trimHotProfiles()
+                }
+                if persistencePending { persist() }
+            }
+        }
+    }
+
+    private func trimHotProfiles() {
+        for (display, stored) in memory.displays {
+            let titles = (stored.openingFrames ?? [:]).keys.filter { !$0.hasSuffix(":") }
+            let removable = titles.filter { !(activeProfiles[display] ?? []).contains($0) }.sorted {
+                (profileTouches[display]?[$0] ?? 0) < (profileTouches[display]?[$1] ?? 0)
+            }
+            for key in removable.prefix(max(0, titles.count - 256)) {
+                // Only evict a version successfully committed to cold storage.
+                guard stored.openingFrames?[key] == persistedProfiles[display]?[key] else { continue }
+                memory.displays[display]?.openingFrames?.removeValue(forKey: key)
+                memory.displays[display]?.sizes.removeValue(forKey: key)
+                profileTouches[display]?.removeValue(forKey: key)
+                persistedProfiles[display]?.removeValue(forKey: key)
+            }
+        }
     }
 
     private func digest(_ title: String?) -> String? {
@@ -250,9 +492,7 @@ final class DisplayWindowMemoryService {
     }
 
     private func visibleWindows() -> [VisibleWindow] {
-        guard let entries = CGWindowListCopyWindowInfo(
-            [.excludeDesktopElements, .optionOnScreenOnly], kCGNullWindowID
-        ) as? [[String: Any]] else { return [] }
+        let entries = WindowServerSnapshot.onScreen()
         let screens = NSScreen.screens
         return entries.compactMap { item in
             guard let layer = item[kCGWindowLayer as String] as? Int, layer == 0,
@@ -272,11 +512,43 @@ final class DisplayWindowMemoryService {
         }
     }
 
+    private func eligible(_ window: AXUIElement) -> Bool {
+        AXUIElementSetMessagingTimeout(window, 0.1)
+        func attribute(_ name: String) -> CFTypeRef? {
+            var value: CFTypeRef?
+            guard AXUIElementCopyAttributeValue(window, name as CFString, &value) == .success else { return nil }
+            return value
+        }
+        var resizable = DarwinBoolean(false)
+        _ = AXUIElementIsAttributeSettable(window, kAXSizeAttribute as CFString, &resizable)
+        var minimizeEnabled: CFTypeRef?
+        if let button = attribute(kAXMinimizeButtonAttribute),
+           CFGetTypeID(button) == AXUIElementGetTypeID() {
+            let element = button as! AXUIElement
+            AXUIElementSetMessagingTimeout(element, 0.1)
+            _ = AXUIElementCopyAttributeValue(element, kAXEnabledAttribute as CFString, &minimizeEnabled)
+        }
+        return DisplayWindowMemorySupport.eligibleWindow(
+            role: attribute(kAXRoleAttribute) as? String,
+            subrole: attribute(kAXSubroleAttribute) as? String,
+            modal: attribute(kAXModalAttribute) as? Bool ?? false,
+            resizable: resizable.boolValue,
+            hasMinimizeButton: minimizeEnabled as? Bool == true)
+            && (attribute("AXFullScreen") as? Bool != true)
+    }
+
+    private func displayGeometry() -> [String: CGRect] {
+        Dictionary(NSScreen.screens.compactMap { screen in
+            displayKey(screen).map { ($0, usableBounds(screen)) }
+        }, uniquingKeysWith: { first, _ in first })
+    }
+
     private func displayKey(_ screen: NSScreen) -> String? {
         guard let id = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")]
                 as? CGDirectDisplayID else { return nil }
-        if CGDisplayIsBuiltin(id) != 0 { return "builtin" }
-        return "external:\(CGDisplayVendorNumber(id)):\(CGDisplayModelNumber(id)):\(CGDisplaySerialNumber(id))"
+        let physical = VirtualHiDPIService.physicalDisplay(for: id)
+        if CGDisplayIsBuiltin(physical) != 0 { return "builtin" }
+        return "external:\(CGDisplayVendorNumber(physical)):\(CGDisplayModelNumber(physical)):\(CGDisplaySerialNumber(physical))"
     }
 
     private func displayBounds(_ screen: NSScreen) -> CGRect {
@@ -302,6 +574,25 @@ final class DisplayWindowMemoryService {
             AXWindowResolver.windowID(for: $0) == item.id
         }) else { return false }
         AXUIElementSetMessagingTimeout(window, 0.1)
+        guard eligible(window) else { return false }
+        var rawCurrentPosition: CFTypeRef?
+        var rawCurrentSize: CFTypeRef?
+        var currentPosition = CGPoint.zero
+        var currentSize = CGSize.zero
+        let positionStatus = AXUIElementCopyAttributeValue(window, kAXPositionAttribute as CFString, &rawCurrentPosition)
+        let sizeStatus = AXUIElementCopyAttributeValue(window, kAXSizeAttribute as CFString, &rawCurrentSize)
+        guard positionStatus != .invalidUIElement, positionStatus != .cannotComplete,
+              sizeStatus != .invalidUIElement, sizeStatus != .cannotComplete else { return false }
+        if positionStatus == .success, sizeStatus == .success,
+           let rawCurrentPosition, let rawCurrentSize,
+           CFGetTypeID(rawCurrentPosition) == AXValueGetTypeID(), CFGetTypeID(rawCurrentSize) == AXValueGetTypeID(),
+           AXValueGetValue(rawCurrentPosition as! AXValue, .cgPoint, &currentPosition),
+           AXValueGetValue(rawCurrentSize as! AXValue, .cgSize, &currentSize),
+           !DisplayWindowMemorySupport.close(CGRect(origin: currentPosition, size: currentSize), item.frame) {
+            return false
+        }
+        // Apps exposing a writable but unreadable geometry attribute retain
+        // the original compatibility path, using the freshly verified WS frame.
         // Recheck input immediately before writing AX attributes.
         guard NSEvent.pressedMouseButtons == 0 else { return false }
         var fullScreen: CFTypeRef?

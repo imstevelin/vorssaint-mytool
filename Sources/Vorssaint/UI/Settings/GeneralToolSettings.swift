@@ -2,6 +2,7 @@
 // Copyright (C) 2026 Vorssaint
 
 import AppKit
+import Combine
 import SwiftUI
 
 /// Tools that share General's destination have their own detail content, so
@@ -67,6 +68,10 @@ private struct BluetoothAudioRecoverySettings: View {
     @AppStorage(DefaultsKey.bluetoothAudioRecoveryEnabled) private var enabled = false
     @State private var configured = false
     @State private var busy = false
+    @State private var selected: [String: String] = [:]
+    @State private var devices: [BluetoothAudioRecoveryService.Device] = []
+    @State private var connectedUIDs = Set<String>()
+    private let refresh = Timer.publish(every: 3, on: .main, in: .common).autoconnect()
 
     private var chinese: Bool {
         switch l10n.language {
@@ -77,16 +82,59 @@ private struct BluetoothAudioRecoverySettings: View {
 
     var body: some View {
         SettingsCard(title: chinese ? "藍牙喇叭連線修復" : "Bluetooth speaker recovery") {
-            Toggle(chinese ? "連接藍牙喇叭時自動重啟藍牙服務" : "Restart Bluetooth when a speaker connects",
+            Toggle(chinese ? "連接指定裝置時自動重啟藍牙服務" : "Restart Bluetooth for selected devices",
                    isOn: $enabled)
                 .onChange(of: enabled) { _, _ in
                     BluetoothAudioRecoveryService.shared.syncWithPreferences()
                 }
             Text(chinese
-                 ? "當藍牙喇叭成為預設音訊輸出時執行一次。重啟會短暫中斷所有藍牙裝置；重新連線不會重複觸發。"
-                 : "Runs once when a Bluetooth speaker becomes the default audio output. All Bluetooth devices briefly disconnect; reconnecting does not trigger another restart.")
+                 ? "只有勾選的裝置成為預設音訊輸出時才會執行。重啟會短暫中斷所有藍牙裝置；重新連線不會重複觸發。"
+                 : "Runs only when a selected device becomes the default audio output. All Bluetooth devices briefly disconnect; reconnecting does not trigger another restart.")
                 .font(.callout)
                 .foregroundStyle(.secondary)
+            Divider()
+            Text(chinese ? "需要自動重啟的裝置" : "Devices that need recovery")
+                .font(.headline)
+            Text(chinese
+                 ? "請先連接藍牙喇叭或耳機，再於下方勾選。可選擇多台，離線後仍會保留選擇；未勾選的裝置不會觸發。"
+                 : "Connect a Bluetooth speaker or headphones, then select it below. You can select several devices; selections remain when disconnected. Unselected devices never trigger recovery.")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+            if devices.isEmpty {
+                Text(chinese ? "目前沒有可選擇的藍牙音訊裝置。" : "No Bluetooth audio devices are available.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+            }
+            ForEach(devices) { device in
+                Toggle(isOn: Binding(
+                    get: { selected[device.uid] != nil },
+                    set: { wanted in
+                        if wanted { selected[device.uid] = device.name }
+                        else { selected.removeValue(forKey: device.uid) }
+                        UserDefaults.standard.set(selected, forKey: DefaultsKey.bluetoothAudioRecoveryDevices)
+                        BluetoothAudioRecoveryService.shared.syncWithPreferences()
+                        refreshDevices()
+                    })) {
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(device.name)
+                            Text(connectedUIDs.contains(device.uid)
+                                 ? (chinese ? "已連線" : "Connected")
+                                 : (chinese ? "未連線 · 已保留選擇" : "Disconnected · Selection saved"))
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            if devices.filter({ $0.name == device.name }).count > 1 {
+                                Text(device.uid).font(.caption).foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                    .toggleStyle(.checkbox)
+            }
+            if selected.isEmpty {
+                Text(chinese ? "尚未指定裝置，自動重啟不會執行。" : "No devices selected. Automatic restart will not run.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+            }
+            Divider()
             if !configured {
                 Button(chinese ? "授權自動重啟" : "Authorize automatic restart") {
                     busy = true
@@ -120,13 +168,31 @@ private struct BluetoothAudioRecoverySettings: View {
                 .disabled(busy)
             }
         }
+        .onReceive(refresh) { _ in refreshDevices() }
+        .onReceive(NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification)
+            .receive(on: DispatchQueue.main)) { _ in
+            selected = BluetoothAudioRecoveryService.selectedDevices
+            refreshDevices()
+        }
         .onAppear {
+            selected = BluetoothAudioRecoveryService.selectedDevices
+            refreshDevices()
             DispatchQueue.global(qos: .utility).async {
                 let ready = BluetoothAudioRecoveryService.isConfigured
                 DispatchQueue.main.async { configured = ready }
             }
         }
     }
+    private func refreshDevices() {
+        let connected = BluetoothAudioRecoveryService.availableBluetoothOutputs()
+        connectedUIDs = Set(connected.map(\.uid))
+        var all = Dictionary(uniqueKeysWithValues: selected.map { ($0.key, $0.value) })
+        for device in connected { all[device.uid] = device.name }
+        devices = all.map { BluetoothAudioRecoveryService.Device(uid: $0.key, name: $0.value) }
+            .sorted { $0.name == $1.name ? $0.uid < $1.uid
+                : $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+    }
+
 }
 
 /// Draws a system symbol in the menu bar in place of the Vorssaint glyph,

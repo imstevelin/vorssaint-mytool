@@ -12,9 +12,64 @@ import Foundation
 // the second activity sharing the closed island.
 
 enum NotchMascotStyle: String, CaseIterable, Identifiable {
-    case minimal, robot
+    case minimal, robot, cat, dog, bear, fox, bunny
+
+    var isAnimal: Bool { self != .minimal && self != .robot }
 
     var id: String { rawValue }
+}
+
+/// Small, self-directed stories rather than a single repeated walk.
+enum NotchMascotPlay: String, CaseIterable {
+    case peek, explore, invite, returnForYou, frolic, groom
+
+    var duration: TimeInterval {
+        switch self {
+        case .peek: return 26
+        case .explore: return 30
+        case .invite: return 34
+        case .returnForYou: return 30
+        case .frolic: return 28
+        case .groom: return 36
+        }
+    }
+}
+
+enum NotchMascotFidget: CaseIterable { case stretch, earFlick, tailWag, headTilt, bounce, scan, wiggle }
+
+extension NotchMascotStyle {
+    var favoritePlays: [NotchMascotPlay] {
+        switch self {
+        case .minimal: return [.frolic, .explore, .invite, .returnForYou]
+        case .robot: return [.explore, .peek, .invite, .returnForYou]
+        case .cat: return [.groom, .groom, .peek, .returnForYou, .invite, .explore]
+        case .dog: return [.invite, .invite, .frolic, .returnForYou, .explore]
+        case .bear: return [.peek, .invite, .explore, .returnForYou]
+        case .fox: return [.returnForYou, .returnForYou, .peek, .explore, .frolic]
+        case .bunny: return [.frolic, .frolic, .peek, .invite, .returnForYou]
+        }
+    }
+
+    func nextPlay(after previous: NotchMascotPlay?, random: Double = Double.random(in: 0..<1)) -> NotchMascotPlay {
+        let options = favoritePlays.filter { $0 != previous }
+        return options[min(options.count - 1, max(0, Int(random * Double(options.count))))]
+    }
+
+    var fidgets: [NotchMascotFidget] {
+        switch self {
+        case .minimal: return [.wiggle, .headTilt, .stretch]
+        case .robot: return [.scan, .headTilt, .wiggle]
+        case .cat: return [.stretch, .earFlick, .tailWag]
+        case .dog: return [.tailWag, .headTilt, .bounce]
+        case .bear: return [.stretch, .headTilt, .wiggle]
+        case .fox: return [.earFlick, .tailWag, .scan]
+        case .bunny: return [.bounce, .earFlick, .headTilt]
+        }
+    }
+
+    var breathingPeriod: TimeInterval {
+        switch self { case .bear: return 5.2; case .dog, .bunny: return 3.2; case .robot: return 4.8; default: return 4.1 }
+    }
 }
 
 enum NotchMascotShape: String, CaseIterable, Identifiable {
@@ -33,9 +88,9 @@ struct NotchMascotColor: Equatable {
     var cgColor: CGColor { CGColor(srgbRed: red, green: green, blue: blue, alpha: alpha) }
 
     /// The eyes, a soft black that still reads on the black island's edge.
-    static let ink = NotchMascotColor(red: 0.07, green: 0.07, blue: 0.08)
+    static let ink = NotchMascotColor(red: 0.07, green: 0.07, blue: 0.07)
     /// The robot's face plate, where its lit eyes sit.
-    static let visor = NotchMascotColor(red: 0.09, green: 0.09, blue: 0.11)
+    static let visor = NotchMascotColor(red: 0.09, green: 0.09, blue: 0.09)
     static let shine = NotchMascotColor(red: 1, green: 1, blue: 1, alpha: 0.55)
 }
 
@@ -322,6 +377,16 @@ extension NotchMascotLook {
                                          shineCenter: CGPoint(x: 0.27, y: 0.34), shineRadii: CGSize(width: 0.07, height: 0.04),
                                          shineAngle: -0.3)
         }
+        if style == .dog {
+            return NotchMascotFaceLayout(leftEye: CGPoint(x: 0.35, y: 0.48), rightEye: CGPoint(x: 0.65, y: 0.48),
+                eyeSize: CGSize(width: 0.12, height: 0.16), shineCenter: .zero,
+                shineRadii: .zero, shineAngle: 0)
+        }
+        if style.isAnimal {
+            return NotchMascotFaceLayout(leftEye: CGPoint(x: 0.36, y: 0.55), rightEye: CGPoint(x: 0.64, y: 0.55),
+                eyeSize: CGSize(width: 0.09, height: 0.13), shineCenter: CGPoint(x: 0.32, y: 0.37),
+                shineRadii: CGSize(width: 0.05, height: 0.025), shineAngle: -0.4)
+        }
         switch shape {
         case .ball:
             return NotchMascotFaceLayout(leftEye: CGPoint(x: 0.36, y: 0.50), rightEye: CGPoint(x: 0.64, y: 0.50),
@@ -398,16 +463,31 @@ enum NotchMascotGeometry {
     /// a share of the box. The box keeps room above a minimal body for the
     /// robot's antenna, so a body placed by its box would sit a little low
     /// wherever it is meant to be centred.
-    static func figureOffset(_ look: NotchMascotLook) -> CGFloat {
+    static func figureBounds(_ look: NotchMascotLook) -> CGRect {
         let bounds: CGRect
         if look.style == .robot {
             let parts = robot(size: 1)
             bounds = [parts.ears, parts.antenna, parts.bulb]
                 .reduce(parts.head.boundingBoxOfPath) { $0.union($1.boundingBoxOfPath) }
+        } else if look.style.isAnimal {
+            let parts = animal(look.style, size: 1)
+            bounds = parts.ears.boundingBoxOfPath.union(parts.head.boundingBoxOfPath).union(parts.tail.boundingBoxOfPath)
         } else {
             bounds = body(look.shape, size: 1).boundingBoxOfPath
         }
-        return bounds.midY - 0.5
+        return bounds
+    }
+
+    /// Animal outlines occupy the available square rather than inheriting
+    /// the extra padding needed by the original face. Limit width for wings.
+    static func displayScale(_ look: NotchMascotLook) -> CGFloat {
+        guard look.style.isAnimal else { return 1 }
+        let bounds = figureBounds(look)
+        return min(0.98 / bounds.height, 1.22 / bounds.width)
+    }
+
+    static func figureOffset(_ look: NotchMascotLook) -> CGFloat {
+        (figureBounds(look).midY - 0.5) * displayScale(look)
     }
 
     static func robot(size: CGFloat) -> Robot {
@@ -425,6 +505,93 @@ enum NotchMascotGeometry {
                      antenna: rounded(rect(0.475, 0.12, 0.05, 0.16), 0.025),
                      bulb: CGPath(ellipseIn: rect(0.43, 0.04, 0.14, 0.14), transform: nil),
                      visor: rounded(rect(0.20, 0.44, 0.60, 0.38), 0.15))
+    }
+
+    struct Animal {
+        let head: CGPath
+        let ears: CGPath
+        let innerEars: CGPath
+        let muzzle: CGPath
+        let nose: CGPath
+        let whiskers: CGPath
+        let tail: CGPath
+    }
+
+    /// Original silhouettes sized to remain readable in an 18-point island.
+    static func animal(_ style: NotchMascotStyle, size: CGFloat) -> Animal {
+        func rect(_ x: CGFloat, _ y: CGFloat, _ w: CGFloat, _ h: CGFloat) -> CGRect {
+            CGRect(x: x * size, y: y * size, width: w * size, height: h * size)
+        }
+        func point(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: x * size, y: y * size) }
+        let ears = CGMutablePath(), inner = CGMutablePath(), muzzle = CGMutablePath()
+        let nose = CGMutablePath(), whiskers = CGMutablePath(), tail = CGMutablePath()
+        func triangle(_ path: CGMutablePath, _ a: CGPoint, _ b: CGPoint, _ c: CGPoint) {
+            path.move(to: a); path.addLine(to: b); path.addLine(to: c); path.closeSubpath()
+        }
+        switch style {
+        case .cat, .fox:
+            triangle(ears, point(0.16, 0.43), point(0.17, 0.08), point(0.43, 0.30))
+            triangle(ears, point(0.57, 0.30), point(0.83, 0.08), point(0.84, 0.43))
+            triangle(inner, point(0.22, 0.33), point(0.23, 0.17), point(0.35, 0.30))
+            triangle(inner, point(0.65, 0.30), point(0.77, 0.17), point(0.78, 0.33))
+        case .dog:
+            // Short, soft floppy ears frame a round puppy face.
+            ears.move(to: point(0.29, 0.23))
+            ears.addCurve(to: point(0.07, 0.48), control1: point(0.11, 0.15), control2: point(0.04, 0.30))
+            ears.addCurve(to: point(0.21, 0.62), control1: point(0.08, 0.63), control2: point(0.15, 0.67))
+            ears.addCurve(to: point(0.29, 0.23), control1: point(0.25, 0.51), control2: point(0.29, 0.35))
+            ears.closeSubpath()
+            var mirror = CGAffineTransform(a: -1, b: 0, c: 0, d: 1, tx: size, ty: 0)
+            ears.addPath(ears.copy(using: &mirror)!)
+            inner.addEllipse(in: rect(0.115, 0.31, 0.075, 0.22))
+            inner.addEllipse(in: rect(0.81, 0.31, 0.075, 0.22))
+        case .bear:
+            ears.addEllipse(in: rect(0.195, 0.205, 0.15, 0.15)); ears.addEllipse(in: rect(0.655, 0.205, 0.15, 0.15))
+            // Solid, small bear ears avoid a mouse-like ring silhouette.
+        case .bunny:
+            ears.addRoundedRect(in: rect(0.22, 0.02, 0.19, 0.43), cornerWidth: size * 0.09, cornerHeight: size * 0.09)
+            ears.addRoundedRect(in: rect(0.59, 0.02, 0.19, 0.43), cornerWidth: size * 0.09, cornerHeight: size * 0.09)
+            inner.addEllipse(in: rect(0.275, 0.08, 0.08, 0.27)); inner.addEllipse(in: rect(0.645, 0.08, 0.08, 0.27))
+        case .minimal, .robot: break
+        }
+        let head = CGPath(roundedRect: style == .dog ? rect(0.16, 0.17, 0.68, 0.75) : rect(0.17, 0.27, 0.66, 0.65),
+            cornerWidth: size * (style == .fox ? 0.21 : 0.30), cornerHeight: size * 0.29, transform: nil)
+        if style == .fox {
+            triangle(muzzle, point(0.20, 0.57), point(0.50, 0.70), point(0.38, 0.85))
+            triangle(muzzle, point(0.80, 0.57), point(0.50, 0.70), point(0.62, 0.85))
+        } else { muzzle.addEllipse(in: rect(0.33, 0.63, 0.34, 0.22)) }
+        let broadNose = style == .dog || style == .bear
+        if style != .dog {
+        nose.addRoundedRect(in: broadNose ? rect(0.415, 0.65, 0.17, 0.10) : rect(0.45, 0.65, 0.10, 0.07),
+            cornerWidth: size * 0.035, cornerHeight: size * 0.035)
+        nose.addRoundedRect(in: rect(0.488, 0.70, 0.024, 0.06), cornerWidth: size * 0.01, cornerHeight: size * 0.01)
+        }
+        if style == .dog {
+            nose.move(to: point(0.44, 0.62))
+            nose.addCurve(to: point(0.56, 0.62), control1: point(0.44, 0.58), control2: point(0.56, 0.58))
+            nose.addCurve(to: point(0.50, 0.69), control1: point(0.56, 0.65), control2: point(0.53, 0.69))
+            nose.addCurve(to: point(0.44, 0.62), control1: point(0.47, 0.69), control2: point(0.44, 0.65))
+            nose.closeSubpath()
+            // Two little smiling cheeks, readable without a heavy muzzle ring.
+            whiskers.move(to: point(0.50, 0.67)); whiskers.addLine(to: point(0.50, 0.73))
+            whiskers.move(to: point(0.37, 0.72))
+            whiskers.addCurve(to: point(0.50, 0.73), control1: point(0.40, 0.78), control2: point(0.46, 0.78))
+            whiskers.addCurve(to: point(0.63, 0.72), control1: point(0.54, 0.78), control2: point(0.60, 0.78))
+        }
+        if style == .cat {
+            for y: CGFloat in [0.65, 0.72] {
+                whiskers.move(to: point(0.14, y - 0.02)); whiskers.addLine(to: point(0.32, y))
+                whiskers.move(to: point(0.68, y)); whiskers.addLine(to: point(0.86, y - 0.02))
+            }
+        }
+        if style == .cat || style == .fox {
+            tail.move(to: point(0.74, 0.85))
+            tail.addCurve(to: point(0.92, 0.53), control1: point(0.98, 0.90), control2: point(0.97, 0.60))
+            tail.addCurve(to: point(0.87, 0.48), control1: point(0.91, 0.48), control2: point(0.89, 0.47))
+            tail.addCurve(to: point(0.69, 0.80), control1: point(0.85, 0.68), control2: point(0.84, 0.76))
+            tail.closeSubpath()
+        } else if style != .dog { tail.addEllipse(in: rect(0.73, 0.75, 0.16, 0.16)) }
+        return Animal(head: head, ears: ears, innerEars: inner, muzzle: muzzle, nose: nose, whiskers: whiskers, tail: tail)
     }
 
     /// The highlight, an ellipse leaning with the body's curve.
@@ -672,6 +839,8 @@ struct NotchMascotVisit: Equatable {
         case lap
         /// In at one end and out at the other, over what the island shows.
         case pass
+        /// A multi-beat autonomous encounter, staying in its own wing.
+        case play(NotchMascotPlay, exits: Bool)
         /// Back from the Command Bar's drop: out from behind the camera to its place.
         case home
         /// Out from behind the camera over what the island shows, to play
@@ -696,12 +865,18 @@ struct NotchMascotVisit: Equatable {
         /// leaving its place only to come back out for it.
         case linger(NotchMascotReaction)
 
+        var isAutonomous: Bool {
+            if case .play = self { return true }
+            return false
+        }
+
         /// It ends out of sight, past the strip's end or behind the camera,
         /// so it can cross an activity's strip and leave nothing behind.
         var endsOutOfSight: Bool {
             switch self {
             case .pass, .cameo, .countdown, .retreat, .farewell, .linger: return true
             case .lap, .home, .cross, .arrive: return false
+            case .play(_, let exits): return exits
             }
         }
 
@@ -720,7 +895,7 @@ struct NotchMascotVisit: Equatable {
         /// from end to end takes the whole strip.
         var takesOnlyItsWing: Bool {
             switch self {
-            case .countdown, .retreat, .cameo, .linger: return true
+            case .countdown, .retreat, .cameo, .linger, .play: return true
             default: return false
             }
         }
@@ -808,7 +983,17 @@ struct NotchMascotTrack: Equatable {
 /// The companion's walk, sampled densely enough for Core Animation to play
 /// as given: where it is, how high a hop lifts it, how much a landing
 /// squashes it and where it looks.
+struct NotchMascotAct: Equatable {
+    let time: TimeInterval
+    let mood: NotchMascotMood
+    let length: TimeInterval
+}
+
 struct NotchMascotPath: Equatable {
+    var acts: [NotchMascotAct] = []
+    /// Stationary moments when the visitor invites pointer attention and petting.
+    var interaction: ClosedRange<TimeInterval>?
+
     var keyTimes: [Double] = []
     var x: [CGFloat] = []
     var lift: [CGFloat] = []
@@ -840,6 +1025,7 @@ enum NotchMascotMotion {
         switch kind {
         case .lap: return lapDuration
         case .pass: return passDuration
+        case .play(let play, _): return play.duration
         case .home, .arrive: return homeDuration
         case .cameo(let reaction): return cameoArrival + cameoHold(reaction) + cameoExit
         case .linger(let reaction): return cameoHold(reaction) + cameoExit
@@ -885,6 +1071,7 @@ enum NotchMascotMotion {
             switch kind {
             case .lap: return lap(on: track)
             case .pass: return pass(on: track)
+            case .play(let play, let exits): return encounter(play, on: track, exits: exits)
             case .home: return home(on: track)
             case .cameo(let reaction): return cameo(on: track, hold: cameoHold(reaction))
             case .linger(let reaction): return linger(on: track, hold: cameoHold(reaction))
@@ -908,6 +1095,55 @@ enum NotchMascotMotion {
         case hop(to: CGFloat, TimeInterval, height: CGFloat)
         case walk(to: CGFloat, TimeInterval)
         case jump(to: CGFloat)
+        case look(TimeInterval, direction: CGFloat)
+    }
+
+    /// No camera crossing: it can invite attention without covering the activity.
+    static func encounter(_ play: NotchMascotPlay, on track: NotchMascotTrack, exits: Bool) -> NotchMascotPath {
+        let size = track.size
+        let near = max(size * 0.65, track.rest - size * 1.1)
+        let far = min((track.hidden?.lowerBound ?? track.width) - size * 0.55, track.rest + size * 0.85)
+        let door = track.hidden.map { track.behindCamera($0, margin: 2) } ?? -size
+        let peek = track.hidden.map { $0.lowerBound + size * 0.05 } ?? size * 0.3
+        var steps: [Step] = exits ? [.hop(to: track.rest, 0.6, height: track.hop(0.16))] : [.stay(0.6)]
+        switch play {
+        case .peek:
+            steps += [.walk(to: peek, 0.6), .look(0.7, direction: -1),
+                      .walk(to: door, 0.35), .stay(0.45), .hop(to: track.rest, 0.55, height: track.hop(0.15)),
+                      .look(1.1, direction: 1), .stay(1.2)]
+        case .explore:
+            steps += [.walk(to: near, 0.6), .look(1.0, direction: -1), .walk(to: far, 0.9),
+                      .look(1.0, direction: 1), .walk(to: track.rest, 0.6), .stay(1.5)]
+        case .invite:
+            steps += [.hop(to: near, 0.55, height: track.hop(0.17)), .look(0.7, direction: -1),
+                      .walk(to: track.rest, 0.55), .stay(3.7, bounces: 1), .look(0.7, direction: 1)]
+        case .returnForYou:
+            steps += [.look(0.6, direction: -1), .walk(to: door, 0.55), .stay(0.7),
+                      .hop(to: peek, 0.4, height: track.hop(0.12)), .look(0.8, direction: -1),
+                      .hop(to: track.rest, 0.55, height: track.hop(0.22)), .stay(2.1)]
+        case .groom:
+            steps += [.walk(to: near, 1.4), .look(0.8, direction: -1), .walk(to: track.rest, 1.4), .stay(4)]
+        case .frolic:
+            steps += [.hop(to: near, 0.55, height: track.hop(0.27)), .stay(0.45),
+                      .hop(to: far, 0.7, height: track.hop(0.30)), .look(0.8, direction: 1),
+                      .hop(to: track.rest, 0.6, height: track.hop(0.19)), .stay(1.4, bounces: 2)]
+        }
+        let spent = steps.reduce(0.0) { total, step in
+            switch step {
+            case .stay(let t, _), .walk(_, let t), .hop(_, let t, _), .look(let t, _): return total + t
+            case .jump: return total
+            }
+        }
+        steps += [.stay(max(0, play.duration - spent - 0.6))]
+        steps += exits ? [.walk(to: door, 0.6)] : [.stay(0.6)]
+        var path = sample(steps, start: exits ? door : track.rest, track: track, duration: play.duration)
+        path.greeting = 1.0...4.0
+        path.acts = [NotchMascotAct(time: 1.3, mood: play == .frolic ? .happy : .thinking, length: 0.7),
+                     NotchMascotAct(time: 4.7, mood: .wink, length: 0.8),
+                     NotchMascotAct(time: play.duration - 1.6, mood: .happy, length: 0.7)]
+        if play == .invite { path.interaction = 7...24 }
+        if play == .returnForYou || play == .groom { path.interaction = 17...25 }
+        return path
     }
 
     /// From its resting place behind the camera to the other side, a hello,
@@ -1110,6 +1346,13 @@ enum NotchMascotMotion {
                 // same moment, so no frame ever draws it on the way across.
                 position = target
                 add(position, lift: 0, squash: 0, gaze: 0.05)
+            case .look(let length, let direction):
+                let frames = max(2, Int((length * rate).rounded()))
+                for frame in 1...frames {
+                    let share = CGFloat(frame) / CGFloat(frames)
+                    time += length / Double(frames)
+                    add(position, lift: 0, squash: 0, gaze: sin(share * .pi) * 0.11 * direction)
+                }
             case .stay(let length, let bounces):
                 let frames = max(1, Int((length * rate).rounded()))
                 for frame in 1...frames {
@@ -1174,7 +1417,7 @@ enum NotchMascotSupport {
 
     /// Hiding when idle, it goes into the island this long after it last did
     /// anything, before it would doze off where it rests, even late at night.
-    static let hideDelay: TimeInterval = 30
+    static let hideDelay: TimeInterval = 60
     /// Busy just then, or under the pointer, it tries again this much later.
     static let hideRetry: TimeInterval = 3
     /// How it goes into the island to hide: a yawn where it rests, then in
@@ -1226,7 +1469,7 @@ enum NotchMascotSupport {
     /// After this many blinks at rest its eyes grow heavy: about three minutes
     /// by day, under a minute late at night.
     static func blinksBeforeSleep(hour: Int) -> Int {
-        hour >= 22 || hour < 6 ? 12 : 36
+        hour >= 22 || hour < 6 ? 24 : 36
     }
 
     /// Installed on the Features page, switched on, and in an island that is on.
@@ -1340,7 +1583,7 @@ enum NotchMascotSupport {
         let rest = max(size / 2, wing - gap - size / 2)
         return NotchMascotTrack(width: stripWidth, height: stripHeight, size: size,
                                 rest: side == .right ? stripWidth - rest : rest,
-                                hidden: wing...(wing + cameraWidth), baseline: stripHeight / 2 + 0.5,
+                                hidden: wing...(wing + cameraWidth), baseline: stripHeight / 2,
                                 mirrored: side == .right)
     }
 
@@ -1365,8 +1608,11 @@ enum NotchMascotSupport {
     static func track(overActivity strip: NotchGeometry, size: CGSize,
                       side: NotchMascotSide = .left) -> NotchMascotTrack? {
         if strip.floats {
-            return track(stripWidth: size.width, stripHeight: strip.stripHeight, wing: 0, cameraWidth: 0,
+            var result = track(stripWidth: size.width, stripHeight: strip.stripHeight, wing: 0, cameraWidth: 0,
                          floats: true, bodyHeight: strip.stripBodyHeight)
+            result.height = size.height
+            result.baseline = size.height / 2
+            return result
         }
         guard !strip.compactActivityUsesFooter else { return nil }
         let wing = strip.compactActivityWingWidth

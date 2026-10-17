@@ -154,6 +154,7 @@ enum DefaultsKey {
     static let mixerHiddenApps = "mixerHiddenApps"        // [persistence id: display name] kept out of the mixer list (issue #300)
     static let mixerLowerVolumeOnHeadphonesDisconnect = "mixerLowerVolumeOnHeadphonesDisconnect"
     static let mixerHeadphonesDisconnectVolumePercent = "mixerHeadphonesDisconnectVolumePercent"
+    static let volumeFeedbackSoundEnabled = "volumeFeedbackSoundEnabled"
     static let preciseVolumeRollerEnabled = "preciseVolumeRollerEnabled"
     static let soundOutputSwitcherEnabled = "soundOutputSwitcherEnabled"
     static let soundOutputSwitcherShortcut = "soundOutputSwitcherShortcut"
@@ -245,6 +246,8 @@ enum DefaultsKey {
     static let startupDidNotFinish = "startupDidNotFinish"
     static let bluetoothSleepEnabled = "bluetoothSleepEnabled"
     static let bluetoothAudioRecoveryEnabled = "bluetoothAudioRecoveryEnabled"
+    // Selected Core Audio UIDs and display names; an empty list never restarts Bluetooth.
+    static let bluetoothAudioRecoveryDevices = "bluetoothAudioRecoveryDevices"
     // Local loop guard. Never move this to another Mac in a settings backup.
     static let bluetoothAudioRecoveryLastAttempt = "bluetoothAudioRecoveryLastAttempt"
     static let bluetoothAudioRecoveryAwaitingReconnectUID = "bluetoothAudioRecoveryAwaitingReconnectUID"
@@ -1342,9 +1345,9 @@ enum Defaults {
         DefaultsKey.shelfAutomaticExclusions: [String](),
         DefaultsKey.extraBrightnessEnabled: false,
         DefaultsKey.extraBrightnessLevel: 100,
-        DefaultsKey.brightnessControlEnabled: false,
-        DefaultsKey.brightnessKeysEnabled: false,
-        DefaultsKey.brightnessOSDEnabled: false,
+        DefaultsKey.brightnessControlEnabled: true,
+        DefaultsKey.brightnessKeysEnabled: true,
+        DefaultsKey.brightnessOSDEnabled: true,
         DefaultsKey.brightnessKeyStep: BrightnessSupport.KeyStep.standard.rawValue,
         DefaultsKey.displayBrightnessShortcutsEnabled: false,
         DefaultsKey.displayBrightnessDecreaseShortcut: "shift+command:27",
@@ -1354,6 +1357,7 @@ enum Defaults {
         DefaultsKey.keyboardBrightnessIncreaseShortcut: "option+command:24",
         DefaultsKey.bluetoothSleepEnabled: false,
         DefaultsKey.bluetoothAudioRecoveryEnabled: false,
+        DefaultsKey.bluetoothAudioRecoveryDevices: [String: String](),
         DefaultsKey.bluetoothSleepRestoreOnWake: true,
         DefaultsKey.bluetoothSleepRestorePending: false,
         DefaultsKey.musicBlockEnabled: false,
@@ -1984,11 +1988,24 @@ enum Defaults {
         migrateAppVolumesToPositions(in: defaults)
         migrateSwitcherWindowlessFinder(in: defaults)
         recheckBrightnessDDCWriteOnlyPaths(in: defaults)
+        enableNativeDisplayKeysOnce(in: defaults)
         hideScratchpadControlOnce(in: defaults)
         hideKeyboardLightControlOnce(in: defaults)
         // The "all apps" output choice now lasts one session; a saved one
         // would move apps that chose their own output after every launch.
         defaults.removeObject(forKey: DefaultsKey.mixerUniversalOutputDevice)
+    }
+
+    /// Adopt the requested on-by-default behavior on upgrades, once only.
+    /// Subsequent explicit opt-outs are respected on every relaunch.
+    static func enableNativeDisplayKeysOnce(in defaults: UserDefaults) {
+        let key = "nativeDisplayKeysDefaultMigratedV1"
+        guard !defaults.bool(forKey: key) else { return }
+        defaults.set(true, forKey: DefaultsKey.brightnessControlEnabled)
+        defaults.set(true, forKey: DefaultsKey.brightnessKeysEnabled)
+        defaults.set(true, forKey: DefaultsKey.brightnessOSDEnabled)
+        defaults.set(true, forKey: AppFeature.brightness.availabilityKey)
+        defaults.set(true, forKey: key)
     }
 
     /// Start text filtering off for existing installations as well. A distinct

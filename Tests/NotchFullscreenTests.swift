@@ -27,6 +27,7 @@ enum NotchFullscreenTests {
     }
     final class BrightnessService {
         static let shared = BrightnessService()
+        var hardwareAudioDisplayID: UInt32? { nil }
         var syncs = 0
         func syncWithPreferences() { syncs += 1 }
     }
@@ -40,6 +41,10 @@ enum NotchFullscreenTests {
     }
     static func AXIsProcessTrusted() -> Bool { true }
     enum NotchService { static var shared = Service() }
+    enum VolumeFeedbackSound {
+        static let shared = VolumeFeedbackSound.self
+        static func prepare(active: Bool) {}
+    }
     class VolumeState {
         var running = false
         func start() { running = true }

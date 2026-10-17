@@ -22,6 +22,7 @@ enum SelfUninstallContract {
         final class Queue {
             var pending: [() -> Void] = []
             func async(execute: @escaping () -> Void) { pending.append(execute) }
+            func sync(execute: () -> Void) { execute() }
             func flush() {
                 while !pending.isEmpty { pending.removeFirst()() }
             }
@@ -34,6 +35,14 @@ enum SelfUninstallContract {
             events.append("rule")
             DispatchQueue.main.async { completion(ruleRemovalAllowed) }
         }
+    }
+    struct DisplayWindowMemoryService {
+        static let shared = DisplayWindowMemoryService()
+        func prepareForRemoval() { events.append("drain window memory") }
+    }
+    struct AgentUsageService {
+        static let shared = AgentUsageService()
+        func prepareForRemoval() { events.append("drain agents") }
     }
     enum BluetoothAudioRecoveryService {
         static func remove(completion: @escaping (Bool) -> Void) { completion(true) }
@@ -209,8 +218,8 @@ enum SelfUninstallContract {
         Host.uninstallCompletely { failure = $0 }
         DispatchQueue.main.flush()
         suite.expect(failure == nil
-                        && events == ["suspend", "spaces", "sleep", "rule", "fan registration", "fan", "tccutil", "login", "preferences", "trash"],
-                     "a full uninstall detaches the fan helper before permission reset and login afterward, found \(events)")
+                        && events == ["suspend", "spaces", "sleep", "rule", "fan registration", "fan", "tccutil", "login", "drain window memory", "drain agents", "preferences", "trash"],
+                     "a full uninstall drains background writers after detaching helpers and before deleting preferences, found \(events)")
 
         reset(allowRule: true)
         suspensionAllowed = false

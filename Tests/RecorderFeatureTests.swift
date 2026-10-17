@@ -892,9 +892,13 @@ enum RecorderFeatureTests {
         suite.expect(recorderSessionShape.contains(
             "await MainActor.run { pointer.start() typing.start() }"
         ), "the recorder installs its event monitors on the main thread")
-        suite.expect(recorderSessionShape.contains(
-            "await MainActor.run { (pointer.stop(), typing.stop()) }"
-        ), "the recorder removes its event monitors on the main thread")
+        let pointerStopShape = ((try? String(
+            contentsOfFile: "Sources/Vorssaint/Services/Recorder/RecorderPointerSampler.swift", encoding: .utf8)) ?? "")
+            .components(separatedBy: .whitespacesAndNewlines).filter { !$0.isEmpty }.joined(separator: " ")
+        suite.expect(recorderSessionShape.contains("await MainActor.run { typing.stop() }")
+            && pointerStopShape.contains("let stopped = await MainActor.run {")
+            && pointerStopShape.contains("if let monitor = self.clickMonitor { NSEvent.removeMonitor(monitor) }"),
+            "the async pointer handoff and typing sampler remove AppKit monitors on main")
 
         let uniform = RecorderMotion.resampled(
             [RecorderMotion.Sample(time: 0, point: CGPoint(x: 0, y: 0)),

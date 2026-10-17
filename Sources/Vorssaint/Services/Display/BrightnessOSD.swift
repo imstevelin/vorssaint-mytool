@@ -12,19 +12,22 @@ enum BrightnessOSD {
     private static var dismissWork: DispatchWorkItem?
     private static var generation = 0
 
-    static func show(displayID: CGDirectDisplayID, brightness: Double) {
+    static func showVolume(displayID: CGDirectDisplayID, volume: Double, muted: Bool) {
+        show(displayID: displayID, brightness: muted ? 0 : volume, volumeSymbol: muted ? "speaker.slash.fill" : "speaker.wave.2.fill")
+    }
+    static func show(displayID: CGDirectDisplayID, brightness: Double, volumeSymbol: String? = nil) {
         guard Thread.isMainThread else {
             DispatchQueue.main.async {
-                show(displayID: displayID, brightness: brightness)
+                show(displayID: displayID, brightness: brightness, volumeSymbol: volumeSymbol)
             }
             return
         }
-        if NotchSupport.routes(.brightness), NotchService.shared.showBrightness(brightness) {
+        if volumeSymbol == nil, NotchSupport.routes(.brightness), NotchService.shared.showBrightness(brightness) {
             return
         }
         guard let screen = NSScreen.screens.first(where: {
             ($0.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?
-                .uint32Value == displayID
+                .uint32Value == VirtualHiDPIService.desktopDisplay(for: displayID)
         }) else { return }
 
         // One hosting controller for the panel's lifetime: a slider drag
@@ -33,10 +36,10 @@ enum BrightnessOSD {
         let panel = ensurePanel()
         let host: NSHostingController<BrightnessOSDView>
         if let existing = Self.host {
-            existing.rootView = BrightnessOSDView(brightness: brightness)
+            existing.rootView = BrightnessOSDView(brightness: brightness, symbol: volumeSymbol ?? "sun.max.fill")
             host = existing
         } else {
-            host = NSHostingController(rootView: BrightnessOSDView(brightness: brightness))
+            host = NSHostingController(rootView: BrightnessOSDView(brightness: brightness, symbol: volumeSymbol ?? "sun.max.fill"))
             Self.host = host
             panel.contentViewController = host
         }
@@ -130,6 +133,7 @@ enum BrightnessOSD {
 /// host and inspect the exact shipped surface.
 struct BrightnessOSDView: View {
     let brightness: Double
+    var symbol = "sun.max.fill"
 
     private var percentage: Int {
         BrightnessSupport.wholePercent(brightness)
@@ -141,7 +145,7 @@ struct BrightnessOSDView: View {
 
     var body: some View {
         VStack(spacing: 11) {
-            Image(systemName: "sun.max.fill")
+            Image(systemName: symbol)
                 .font(.system(size: 39, weight: .regular))
                 .symbolRenderingMode(.monochrome)
                 .foregroundStyle(.white.opacity(0.82))

@@ -36,8 +36,8 @@ enum MediaVideoTargetEncoder {
                        trim: MediaTrimRange,
                        targetBytes: Int64,
                        destination: URL,
-                       isCancelled: () -> Bool,
-                       progress: (Double) -> Void) throws -> Int64 {
+                       isCancelled: @escaping () -> Bool,
+                       progress: @escaping (Double) -> Void) throws -> Int64 {
         var scale = 1.0
         for pass in 0..<maximumPasses {
             guard let plan = MediaSupport.videoSizePlan(targetBytes: targetBytes,
@@ -72,8 +72,8 @@ enum MediaVideoTargetEncoder {
                                 trim: MediaTrimRange,
                                 plan: MediaVideoSizePlan,
                                 destination: URL,
-                                isCancelled: () -> Bool,
-                                progress: (Double) -> Void) throws {
+                                isCancelled: @escaping () -> Bool,
+                                progress: @escaping (Double) -> Void) throws {
         try? FileManager.default.removeItem(at: destination)
         guard let reader = try? AVAssetReader(asset: source.asset),
               let writer = try? AVAssetWriter(outputURL: destination, fileType: .mp4)
@@ -141,56 +141,10 @@ enum MediaVideoTargetEncoder {
         writer.startSession(atSourceTime: start)
 
         let expectedFrames = max(1, Int((trim.duration * max(1, source.frameRate)).rounded()))
-        var appendedFrames = 0
-        var pendingVideo = videoOutput.copyNextSampleBuffer()
-        var pendingAudio = audioOutput?.copyNextSampleBuffer()
-
-        // Both tracks are drained by whichever holds the earlier sample, so the
-        // writer receives them interleaved the way it would from a live source.
-        // It answers by holding one input back while it waits on the other,
-        // which is why a pass never waits on the input it would have preferred:
-        // it hands the sample to whichever input can take one.
-        while pendingVideo != nil || pendingAudio != nil {
-            if isCancelled() {
-                reader.cancelReading()
-                writer.cancelWriting()
-                throw EncodeError.cancelled
-            }
-            let videoTime = pendingVideo.map { CMSampleBufferGetPresentationTimeStamp($0) }
-            let audioTime = pendingAudio.map { CMSampleBufferGetPresentationTimeStamp($0) }
-            let prefersVideo: Bool
-            switch (videoTime, audioTime) {
-            case let (video?, audio?): prefersVideo = video <= audio
-            case (_?, nil): prefersVideo = true
-            default: prefersVideo = false
-            }
-            let takesVideo = pendingVideo != nil && videoInput.isReadyForMoreMediaData
-            let takesAudio = pendingAudio != nil && audioInput?.isReadyForMoreMediaData == true
-
-            if takesVideo, prefersVideo || !takesAudio, let buffer = pendingVideo {
-                guard videoInput.append(buffer) else { throw writeFailure(writer) }
-                appendedFrames += 1
-                progress(min(0.99, Double(appendedFrames) / Double(expectedFrames)))
-                pendingVideo = videoOutput.copyNextSampleBuffer()
-            } else if takesAudio, let input = audioInput, let buffer = pendingAudio {
-                guard input.append(buffer) else { throw writeFailure(writer) }
-                pendingAudio = audioOutput?.copyNextSampleBuffer()
-            } else if pendingAudio != nil, audioInput == nil {
-                // The audio track was read but the writer refused an input for
-                // it, so the samples are dropped instead of piling up.
-                pendingAudio = nil
-            } else {
-                guard writer.status == .writing else { throw writeFailure(writer) }
-                Thread.sleep(forTimeInterval: 0.002)
-            }
-        }
-
-        videoInput.markAsFinished()
-        audioInput?.markAsFinished()
-        guard reader.status != .failed else {
-            writer.cancelWriting()
-            throw EncodeError.failed(reader.error?.localizedDescription ?? "Video could not be read.")
-        }
+        let pump = ReadyPump(reader: reader, writer: writer, videoOutput: videoOutput,
+                             audioOutput: audioOutput, videoInput: videoInput, audioInput: audioInput,
+                             expectedFrames: expectedFrames, isCancelled: isCancelled, progress: progress)
+        try pump.run()
 
         let semaphore = DispatchSemaphore(value: 0)
         writer.finishWriting { semaphore.signal() }
@@ -201,6 +155,113 @@ enum MediaVideoTargetEncoder {
             }
         }
         guard writer.status == .completed else { throw writeFailure(writer) }
+    }
+
+    /// Both readiness callbacks share one serial queue and one interleaving
+    /// state. At most one sample per track is buffered; no 2 ms retry loop.
+    private final class ReadyPump {
+        let reader: AVAssetReader
+        let writer: AVAssetWriter
+        let videoOutput: AVAssetReaderTrackOutput
+        let audioOutput: AVAssetReaderAudioMixOutput?
+        let videoInput: AVAssetWriterInput
+        let audioInput: AVAssetWriterInput?
+        let expectedFrames: Int
+        let isCancelled: () -> Bool
+        let progress: (Double) -> Void
+        let queue = DispatchQueue(label: "com.vorssaint.media-target-writer", qos: .userInitiated)
+        let done = DispatchSemaphore(value: 0)
+        var pendingVideo: CMSampleBuffer?
+        var pendingAudio: CMSampleBuffer?
+        var appendedFrames = 0
+        var videoEnded = false
+        var audioEnded = false
+        var finished = false
+        var error: Error?
+
+        init(reader: AVAssetReader, writer: AVAssetWriter,
+             videoOutput: AVAssetReaderTrackOutput, audioOutput: AVAssetReaderAudioMixOutput?,
+             videoInput: AVAssetWriterInput, audioInput: AVAssetWriterInput?,
+             expectedFrames: Int, isCancelled: @escaping () -> Bool, progress: @escaping (Double) -> Void) {
+            self.reader = reader; self.writer = writer
+            self.videoOutput = videoOutput; self.audioOutput = audioOutput
+            self.videoInput = videoInput; self.audioInput = audioInput
+            self.expectedFrames = expectedFrames; self.isCancelled = isCancelled; self.progress = progress
+        }
+
+        func run() throws {
+            queue.async { [self] in
+                pendingVideo = videoOutput.copyNextSampleBuffer()
+                pendingAudio = audioInput == nil ? nil : audioOutput?.copyNextSampleBuffer()
+                videoInput.requestMediaDataWhenReady(on: queue) { [weak self] in self?.drain() }
+                audioInput?.requestMediaDataWhenReady(on: queue) { [weak self] in self?.drain() }
+                drain()
+            }
+            while done.wait(timeout: .now() + .milliseconds(50)) == .timedOut {
+                // Also notices cancellation/failure when neither input will
+                // issue another readiness callback. This matches the existing
+                // finalization cancellation cadence, rather than 500 wakes/s.
+                queue.async { [self] in
+                    guard !finished else { return }
+                    if isCancelled() { finish(EncodeError.cancelled) }
+                    else if writer.status != .writing { finish(writeFailure(writer)) }
+                }
+            }
+            if let error = queue.sync(execute: { self.error }) { throw error }
+        }
+
+        private func finish(_ failure: Error? = nil) {
+            guard !finished else { return }
+            finished = true
+            error = failure
+            if failure != nil { reader.cancelReading(); writer.cancelWriting() }
+            done.signal()
+        }
+
+        private func markEndedTracks() {
+            if pendingVideo == nil, !videoEnded {
+                videoEnded = true
+                videoInput.markAsFinished()
+            }
+            if pendingAudio == nil, !audioEnded {
+                audioEnded = true
+                audioInput?.markAsFinished()
+            }
+        }
+
+        private func drain() {
+            guard !finished else { return }
+            while true {
+                if isCancelled() { finish(EncodeError.cancelled); return }
+                guard writer.status == .writing else { finish(writeFailure(writer)); return }
+                markEndedTracks()
+                if pendingVideo == nil && pendingAudio == nil {
+                    if reader.status == .failed {
+                        finish(EncodeError.failed(reader.error?.localizedDescription ?? "Video could not be read."))
+                    } else { finish() }
+                    return
+                }
+                let videoTime = pendingVideo.map { CMSampleBufferGetPresentationTimeStamp($0) }
+                let audioTime = pendingAudio.map { CMSampleBufferGetPresentationTimeStamp($0) }
+                let prefersVideo: Bool
+                switch (videoTime, audioTime) {
+                case let (video?, audio?): prefersVideo = video <= audio
+                case (_?, nil): prefersVideo = true
+                default: prefersVideo = false
+                }
+                let takesVideo = pendingVideo != nil && videoInput.isReadyForMoreMediaData
+                let takesAudio = pendingAudio != nil && audioInput?.isReadyForMoreMediaData == true
+                if takesVideo, prefersVideo || !takesAudio, let buffer = pendingVideo {
+                    guard videoInput.append(buffer) else { finish(writeFailure(writer)); return }
+                    appendedFrames += 1
+                    progress(min(0.99, Double(appendedFrames) / Double(expectedFrames)))
+                    pendingVideo = videoOutput.copyNextSampleBuffer()
+                } else if takesAudio, let input = audioInput, let buffer = pendingAudio {
+                    guard input.append(buffer) else { finish(writeFailure(writer)); return }
+                    pendingAudio = audioOutput?.copyNextSampleBuffer()
+                } else { return } // AVFoundation wakes us when either can accept more.
+            }
+        }
     }
 
     private static func writeFailure(_ writer: AVAssetWriter) -> EncodeError {
