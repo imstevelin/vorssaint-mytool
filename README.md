@@ -7,6 +7,8 @@
 產物：`build/stage/實用小工具.app`。封裝：`./Tools/make-dmg.sh`。
 視窗尺寸記憶說明請見 [docs/DISPLAY_WINDOW_MEMORY.md](docs/DISPLAY_WINDOW_MEMORY.md)。
 上游研究與獨立更新節奏請見 [docs/UPSTREAM_MAINTENANCE.md](docs/UPSTREAM_MAINTENANCE.md)。
+維護規則：[CONTRIBUTING_FORK.md](CONTRIBUTING_FORK.md)；客製契約：[docs/FORK_CUSTOMIZATIONS.md](docs/FORK_CUSTOMIZATIONS.md)。
+檢查上游：`python3 Tools/check-upstream.py`（需已設定 `upstream` remote，僅抓取及比較）。
 
 下載及手動更新：[此 fork 的 Releases](https://github.com/imstevelin/vorssaint-mytool/releases)。
 以下官方介紹中的功能／版本資訊由上游維護；安裝此客製版請使用此 fork 的來源與產物。
@@ -151,7 +153,7 @@ Reorder or hide panel sections, choose a compact layout, and export settings to 
 ### Everyday tools
 
 - **Dynamic Island.** Keep music, notifications, calendars, timers, downloads and everyday controls around the camera cutout, or a simulated one on other Macs. Customize sections and shortcuts, with optional lyrics, a live equalizer, camera preview and file tools.
-- **AI agents.** Follow Claude, Codex, OpenCode and GitHub Copilot in the Dynamic Island: plan limits and when they reset where available, tokens, API value, models, projects and live work, with a notice when a long task finishes. Codex's banked resets can be used from there too. Copilot uses local CLI/app session logs; its token totals update when shutdown metrics arrive, and aggregate API-value estimates use base rates.
+- **AI agents.** Follow Claude, Codex, OpenCode and GitHub Copilot in the Dynamic Island: plan limits and when they reset where available, tokens, API value, models, projects and live work, with a notice when a long task finishes. Codex's banked resets can be used from there too, and each extra Codex account (`CODEX_HOME`) can have a limits card of its own. Copilot uses local CLI/app session logs; its token totals update when shutdown metrics arrive, and aggregate API-value estimates use base rates.
 - **Command Bar.** Search apps, windows, files, clipboard history, snippets and app menu commands from one field. Calculate, convert units, find emoji or run saved scripts.
 - **Quick panel.** Open a floating palette of favorite tools with ⌃⌘V.
 - **Quick toggles.** Switch appearance, hide desktop icons, eject disks, empty the Trash, lock the screen and more.

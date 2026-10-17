@@ -8,7 +8,6 @@ import SwiftUI
 extension Notification.Name {
     /// A file is being dragged toward the island while it shows where to drop it.
     static let notchMascotDragMoved = Notification.Name("NotchMascotDragMoved")
-    /// The pointer moved over the open island, or left it.
     static let notchMascotPointerMoved = Notification.Name("NotchMascotPointerMoved")
     static let notchMascotPointerLeft = Notification.Name("NotchMascotPointerLeft")
     /// An activity takes the place of the companion resting in the closed island.
@@ -1444,10 +1443,9 @@ struct NotchMascotTrackView: NSViewRepresentable {
     /// Switched off, the Settings preview shows it asleep: eyes shut, no
     /// blinking, and no eyes for the pointer.
     var awake = true
-    /// Its eyes follow the pointer over the whole open island.
-    var followsIsland = false
     /// It rests in the closed island and fades out early as an activity takes its place.
     var yieldsToActivities = false
+    var followsIsland = false
 
     func makeNSView(context: Context) -> NotchMascotHostView {
         NotchMascotHostView(frame: CGRect(x: 0, y: 0, width: track.width, height: track.height))

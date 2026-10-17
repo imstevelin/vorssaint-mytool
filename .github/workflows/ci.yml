@@ -39,6 +39,9 @@ jobs:
       - name: Unit tests
         run: ./build.sh --test
 
+      - name: Maintenance tooling tests
+        run: python3 Tests/UpstreamAssessmentTests.py
+
   build:
     name: Build & selftest
     runs-on: macos-26

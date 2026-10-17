@@ -1,6 +1,6 @@
 # 實用小工具：上游追蹤與獨立發版計畫
 
-研究日期：2026-10-18（Asia/Taipei）。本文件是維護提案；本次僅保存現況、研究與合併預演，尚未整合新的上游修改、調整預設分支或啟用排程。
+研究日期：2026-10-18（Asia/Taipei）。下方現況與數量保留為研究時快照；第一輪的實際執行與驗證見 [同步紀錄](upstream-sync/2026-10-18.md)，目前整合基準由 [upstream-state.json](upstream-state.json) 記錄。維護規則見 [CONTRIBUTING_FORK.md](../CONTRIBUTING_FORK.md)。
 
 ## 現況與證據
 

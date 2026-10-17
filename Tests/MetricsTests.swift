@@ -47,6 +47,7 @@ struct MetricsTests {
             ("mixer", {
                 MixerNativeDragTests.run(suite)
                 MixerOutputAdjustmentContract.run(suite)
+                MixerHeadphonesDisconnectContract.run(suite)
                 MixerLevelCompensationContract.run(suite)
                 SoundOutputSwitchContract.run(suite)
                 MixerUniversalRoutingContract.run(suite)
@@ -74,14 +75,19 @@ struct MetricsTests {
                 UpdateAdminInstallContract.run(suite)
                 UpdateHighlightsTests.run(suite)
                 UpdateIntroFlowTests.run(suite)
+                ReleaseDigestTests.run(suite)
             }),
             ("repository", { RepositoryFeatureTests.run(suite) }),
             ("screenshots", {
+                ScreenshotCanvasSupportTests.run(suite)
+                ScreenshotImageLayerTests.run(suite)
+                ScreenshotCanvasModelTests.run(suite)
                 ScreenTextCompletionTests.run(suite)
                 ScreenshotOCRControlTests.run(suite)
                 ScreenshotPreviewHoverTests.run(suite)
                 ScreenshotWatermarkTests.run(suite)
                 ScreenshotFeatureTests.run(suite)
+                ScreenshotSpotlightEditingTests.run(suite)
                 ScreenshotShareCompletionTests.run(suite)
                 ScreenshotAutoShelfTests.run(suite)
                 ScreenshotScrollingCaptureTests.run(suite)
@@ -108,6 +114,7 @@ struct MetricsTests {
                 PlainTextLineMoverTests.run(suite)
                 NotchVolumeKeyTests.run(suite)
                 NotchSettingsTabRowTests.run(suite)
+                NotchPresentationProbeArgumentTests.run(suite)
             }),
             ("switcher-model", { SwitcherModelFeatureTests.run(suite) }),
             ("agents", { NotchAgentTests.run(suite) }),
@@ -117,6 +124,7 @@ struct MetricsTests {
             }),
             ("utilities", {
                 UtilitiesFeatureTests.run(suite)
+                TextSnippetExpansionTests.run(suite)
                 QuickTogglesAlertTests.run(suite)
                 PortManagerRefreshTests.run(suite)
             }),
