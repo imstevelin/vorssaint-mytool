@@ -2,7 +2,8 @@ name: Fork CI
 
 on:
   push:
-    branches: [main, 'codex/sync-upstream-*']
+    branches: [main]
+    paths-ignore: ['**/*.md', 'docs/**']
   pull_request:
   workflow_dispatch:
 
@@ -66,7 +67,9 @@ jobs:
           test -x "$APP/Contents/Helpers/VirtualDisplayHost"
 
       - name: Package DMG
-        run: ./Tools/make-dmg.sh
+        run: |
+          ./Tools/make-dmg.sh
+          for image in dist/*.dmg; do hdiutil verify "$image"; done
 
       - name: Unit tests
         run: ./build.sh --test
