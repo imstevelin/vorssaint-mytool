@@ -74,4 +74,4 @@ Run `./build.sh` and `./Tools/make-dmg.sh` on macOS with Xcode or Command Line T
 
 The app checks only this fork's GitHub Releases. Its update button opens the fork's release page for manual installation. It never runs the upstream automatic installer, whose signature check is tied to the upstream team and bundle ID.
 
-To incorporate upstream changes, fetch `upstream/main` and merge it into the fork's development branch, test the display modules, then merge the development branch into this release branch. Resolve branding and localization conflicts in the release branch before building and tagging a new release.
+For upstream integration and the proposed independent release cadence, see [docs/UPSTREAM_MAINTENANCE.md](docs/UPSTREAM_MAINTENANCE.md). The proposed flow consolidates development on the fork's `main`, uses short-lived integration branches with normal merges, and validates fork behavior before tagging a release. The current working branch has not yet been consolidated into `main`.

@@ -6,6 +6,7 @@
 建置：`./build.sh`。安裝：`./build.sh --install`。
 產物：`build/stage/實用小工具.app`。封裝：`./Tools/make-dmg.sh`。
 視窗尺寸記憶說明請見 [docs/DISPLAY_WINDOW_MEMORY.md](docs/DISPLAY_WINDOW_MEMORY.md)。
+上游研究與獨立更新節奏請見 [docs/UPSTREAM_MAINTENANCE.md](docs/UPSTREAM_MAINTENANCE.md)。
 
 以下保留上游專案介紹與致謝。
 
