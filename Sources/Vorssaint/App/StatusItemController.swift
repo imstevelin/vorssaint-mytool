@@ -879,14 +879,14 @@ final class StatusItemController {
     }
 }
 
-/// The official mark, bundled as a template image so the idle state adapts to
+/// The fork mark, bundled as a template image so the idle state adapts to
 /// light and dark menu bars. Active states can use real colors for attention.
 /// A system symbol named in the menu bar settings can take the mark's place.
 enum BlackHoleGlyph {
-    /// Logical size of the glyph in the menu bar, in points. Wide because the
-    /// mark is ~1.97:1 and sized from its height. Tools/MakeIcon.swift writes
-    /// the bundled PNGs at this size; `--selftest` checks the two still agree.
-    static let pointSize = NSSize(width: 26, height: 20)
+    /// Logical size of the fork's square Command glyph. MakeForkIcon.swift
+    /// writes matching 18/36 px representations; selftest verifies the canvas
+    /// so the upstream wide mark's dimensions cannot stretch the fork icon.
+    static let pointSize = NSSize(width: 18, height: 18)
 
     /// Requested ink height for the active states' system symbols. A compact
     /// symbol has to stand taller than the wide mark to read as the same size,
