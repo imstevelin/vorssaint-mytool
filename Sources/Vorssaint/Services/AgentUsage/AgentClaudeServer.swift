@@ -51,12 +51,11 @@ enum AgentClaudeServer {
     /// pnpm keep global tools. The Claude app's own copy is left out: it has
     /// no sign-in of its own to check with.
     static func candidates(home: URL, searchPath: String? = nil) -> [URL] {
+        // One list per line: Swift 6.0.3 cannot type-check them as one sum in time.
         var folders: [String] = [home.appending(path: ".local/bin").path,
                                  home.appending(path: ".claude/local").path, "/opt/homebrew/bin", "/usr/local/bin"]
-        let pathFolders: [String] = (searchPath ?? "").split(separator: ":").map { String($0) }
-            .filter { $0.hasPrefix("/") }
-        folders.append(contentsOf: pathFolders)
-        folders.append(contentsOf: toolFolders(home: home))
+        folders += (searchPath ?? "").split(separator: ":").map(String.init).filter { $0.hasPrefix("/") }
+        folders += toolFolders(home: home)
         return folders.map { URL(fileURLWithPath: $0, isDirectory: true).appending(path: "claude") }
     }
 
@@ -64,19 +63,16 @@ enum AgentClaudeServer {
     /// them, each manager's newest Node first, and Volta's, Bun's and pnpm's
     /// own. A Claude Code that needs Node finds it on this list too.
     static func toolFolders(home: URL) -> [String] {
-        let path = { (relative: String) in home.appending(path: relative).path }
-        let fnm = ["Library/Application Support/fnm", ".local/share/fnm", ".fnm"].map(path)
-        // Keep each manager's order explicit and small enough for Swift 6.0.3
-        // to type-check; one long chain of overloaded array additions times out.
+        let path = { (relative: String) -> String in home.appending(path: relative).path }
+        let fnm: [String] = ["Library/Application Support/fnm", ".local/share/fnm", ".fnm"].map(path)
+        // One list per line, as above.
         var folders: [String] = [path(".volta/bin")]
-        folders.append(contentsOf: fnm.map { $0 + "/aliases/default/bin" })
-        folders.append(contentsOf: newest(in: path(".nvm/versions/node")).map { $0 + "/bin" })
-        for root in fnm {
-            folders.append(contentsOf: newest(in: root + "/node-versions").map { $0 + "/installation/bin" })
-        }
-        folders.append(contentsOf: newest(in: path(".asdf/installs/nodejs")).map { $0 + "/bin" })
-        folders.append(contentsOf: newest(in: path(".local/share/mise/installs/node")).map { $0 + "/bin" })
-        folders.append(contentsOf: [path(".bun/bin"), path("Library/pnpm"), path(".local/share/pnpm"), path(".npm-global/bin")])
+        folders += fnm.map { $0 + "/aliases/default/bin" }
+        folders += newest(in: path(".nvm/versions/node")).map { $0 + "/bin" }
+        folders += fnm.flatMap { root in newest(in: root + "/node-versions").map { $0 + "/installation/bin" } }
+        folders += newest(in: path(".asdf/installs/nodejs")).map { $0 + "/bin" }
+        folders += newest(in: path(".local/share/mise/installs/node")).map { $0 + "/bin" }
+        folders += [path(".bun/bin"), path("Library/pnpm"), path(".local/share/pnpm"), path(".npm-global/bin")]
         return folders
     }
 

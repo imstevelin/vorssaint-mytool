@@ -39,6 +39,7 @@ A cleaner Dynamic Island, a What's New window that shows what changed in the fea
 ### Fixed
 - Dynamic Island no longer runs below the physical notch when the menu bar is taller than it, and Hide gap below notch is now off by default. Settings → Dynamic Island → Layout → Notch fit.
 - Dynamic Island hides its focus ring until you use the keyboard, keeps slider levels off the top row and shows the playing app's icon for songs without a cover.
+- Dynamic Island's home and Tools pages fit their tiles at small custom sizes instead of cutting off a column.
 - Playing music takes the idle companion's place in Dynamic Island and stays selectable beside AI activity.
 - The island scratchpad's shortcut opens and closes it every time.
 - Clipboard, Scratchpad, Quick Launcher and Shelf shortcuts expand the island's capture controls instead of opening the island after the capture.
@@ -67,6 +68,7 @@ A cleaner Dynamic Island, a What's New window that shows what changed in the fea
 - Disk Image Installer ignores Homebrew's cached installers.
 - The screenshot editor keeps every tool reachable in short windows.
 - Recordings and exports fall back to H.264 when HEVC cannot encode their size, starting a recording no longer freezes the interface and exporting makes it stutter less.
+- Window recordings keep only their app's sound after a browser starts a video mid-recording.
 - AI Agents follows OpenCode 2, keeps an edited Codex conversation working as one task with its reviews and subagents, and estimates Claude renewals safely after long gaps.
 - CPU temperature on Apple M4 Pro reads its hottest cores, so alerts and fan curves react in time.
 - Display brightness ignores stale DDC replies from other monitor controls.
