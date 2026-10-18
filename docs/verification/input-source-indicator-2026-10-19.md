@@ -26,4 +26,6 @@
 - 原生外觀檢查發現 `NSTextField.intrinsicContentSize` 受既有 frame 影響造成名稱截斷，改為測量未截斷的字串寬度。
 - 正式 App 未替換；Developer 測試使用獨立設定備份與功能隔離。
 
-正式建置、selftest、CI 與修正後原生外觀結果稍後補記。實體多螢幕、鎖屏／睡醒、所有輸入法與所有第三方 App 並未因此取得通用相容性保證。
+- `./build.sh` 正式建置通過；`./build/VorssaintImstevelin --selftest` 回報 `SELFTEST OK`，正式 staged bundle 與安裝的 Developer bundle 均通過 strict deep codesign，Info.plist lint 通過。
+- Fork CI 的最新結果以 [PR #5](https://github.com/imstevelin/vorssaint-mytool/pull/5) Checks 為準，不把本機測試視為 CI 結果。
+- 修正後的名稱寬度、持續顯示／切換、實體多螢幕及鎖屏／睡醒仍保留人工驗收；本輪 UI 工具可讀到提示文字，但沒有取得足以確認全部原生外觀與切換流程的證據。所有輸入法與所有第三方 App 並未因此取得通用相容性保證。
