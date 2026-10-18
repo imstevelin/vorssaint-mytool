@@ -54,6 +54,9 @@ def main():
     write("VolumeFeedbackSoundRuntime.swift", "import Foundation\nextension VolumeFeedbackSoundTests {\n"
           + declaration("Sources/Vorssaint/Services/Audio/VolumeFeedbackSound.swift", "final class VolumeFeedbackSound")
           + "}\n")
+    write("VolumeFeedbackAudioPlayerRuntime.swift", "import Foundation\nextension VolumeFeedbackAudioPlayerTests {\n"
+          + declaration("Sources/Vorssaint/Services/Audio/VolumeFeedbackSound.swift", "final class VolumeFeedbackAudioPlayer")
+          + "}\n")
     recorder = "Sources/Vorssaint/Services/Recorder/ScreenRecorderService.swift"
     write("RecorderPreparation.swift", "import Foundation\nextension RecorderPreparationTests {\n"
           + "final class Service: Fixture {\n"
@@ -294,7 +297,8 @@ def main():
           + "final class Service: Fixture {\n"
           + "".join(declaration(hidpi, prefix) for prefix in [
               "    static func recordPhysicalSize(", "    func presets(", "    func defaultProfile(",
-              "    func refreshRates(", "    static func valid(", "    static func stableVerificationCount("])
+              "    func refreshRates(", "    static func valid(", "    static func stableVerificationCount(",
+              "    static func preferredRefreshRate(", "    static func refreshRateMatches("])
           + "}\n}\n")
     write("BrightnessStep.swift", "import CoreGraphics\nimport Foundation\nimport os\n"
           + "extension BrightnessStepTests {\n"

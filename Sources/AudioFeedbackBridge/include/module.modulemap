@@ -1,0 +1,4 @@
+module AudioFeedbackBridge {
+    header "AudioFeedbackBridge.h"
+    export *
+}

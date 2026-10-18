@@ -108,8 +108,28 @@ final class VirtualHiDPIService: ObservableObject {
             && width * height <= 14_745_600 && rate.isFinite && rate >= 24 && rate <= 240
     }
 
+    static func preferredRefreshRate(requested: Double, physical: Double?, cached: Double?) -> Double {
+        for candidate in [physical, cached, requested] {
+            if let candidate, candidate.isFinite, candidate >= 24, candidate <= 240 { return candidate }
+        }
+        return 60
+    }
+
+    static func refreshRateMatches(actual: Double, requested: Double) -> Bool {
+        // Zero is an unavailable/variable-rate readback, never evidence of 60 Hz.
+        actual.isFinite && (actual == 0 || abs(actual - requested) < 0.6)
+    }
+
     func enable(_ id: CGDirectDisplayID, profile: Profile, preferNative: Bool = true,
-                automaticallyConfirm: Bool = false) {
+                automaticallyConfirm: Bool = false, preservePhysicalRate: Bool = false) {
+        var profile = profile
+        // Resolve on the user action, not in a SwiftUI body. The asynchronous
+        // brightness scan may not have populated the physical-rate cache yet.
+        if preservePhysicalRate, CGDisplayIsOnline(id) != 0, CGDisplayMirrorsDisplay(id) == 0 {
+            profile.rate = Self.preferredRefreshRate(requested: profile.rate,
+                physical: CGDisplayCopyDisplayMode(id)?.refreshRate,
+                cached: Self.ownershipLock.withLock { Self.physicalRates[id] })
+        }
         guard switching == nil, confirmationDisplay == nil, sessions[id] == nil,
               CGDisplayIsBuiltin(id) == 0, CGDisplayIsOnline(id) != 0,
               let uuid = DisplayRecoverySnapshot.uuid(id),
@@ -208,7 +228,7 @@ final class VirtualHiDPIService: ObservableObject {
     private static func matches(_ mode: CGDisplayMode, profile: Profile) -> Bool {
         mode.width == profile.width && mode.height == profile.height
             && mode.pixelWidth == profile.width * 2 && mode.pixelHeight == profile.height * 2
-            && (mode.refreshRate == 0 || abs(mode.refreshRate - profile.rate) < 0.6)
+            && Self.refreshRateMatches(actual: mode.refreshRate, requested: profile.rate)
     }
 
     private func attachVirtual(_ id: CGDirectDisplayID, virtual: CGDirectDisplayID, token: Int, attempts: Int) {
@@ -252,7 +272,10 @@ final class VirtualHiDPIService: ObservableObject {
         let colorMatches = expectedColorProfiles[id].map {
             DisplayColorProfile.matches($0, display: desktop) && DisplayColorProfile.matches($0, display: id)
         } == true
-        let valid = mode.map { Self.matches($0, profile: session.profile) } == true
+        let physicalRateMatches = CGDisplayCopyDisplayMode(id).map {
+            Self.refreshRateMatches(actual: $0.refreshRate, requested: session.profile.rate)
+        } == true
+        let valid = mode.map { Self.matches($0, profile: session.profile) } == true && physicalRateMatches
             && (session.virtualID == nil || CGDisplayMirrorsDisplay(id) == desktop) && colorMatches
         verificationPasses[id] = Self.stableVerificationCount(valid: valid, previous: verificationPasses[id] ?? 0)
         if verificationPasses[id, default: 0] >= 4 {

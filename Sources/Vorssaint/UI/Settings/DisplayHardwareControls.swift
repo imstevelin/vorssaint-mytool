@@ -64,11 +64,17 @@ struct DisplayHardwareControls: View {
             }
             .font(compact ? .system(size: 11) : .body)
             .onAppear {
-                let preset = hidpi.defaultProfile(for: display.id)
-                width = String(preset.width); height = String(preset.height)
+                resetHiDPISelection()
                 audio.syncWithPreferences()
             }
+            .onChange(of: display.id) { _, _ in resetHiDPISelection() }
         }
+    }
+
+    private func resetHiDPISelection() {
+        let preset = hidpi.defaultProfile(for: display.id)
+        width = String(preset.width); height = String(preset.height)
+        selectedRate = nil // Never carry another monitor's explicit timing over.
     }
 
     private func toggleMute() {
@@ -102,7 +108,7 @@ struct DisplayHardwareControls: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
                 Toggle("HiDPI", isOn: Binding(get: { hidpi.sessions[display.id] != nil }, set: { enabled in
-                    if enabled { hidpi.enable(display.id, profile: selectedProfile) }
+                    if enabled { hidpi.enable(display.id, profile: selectedProfile, preservePhysicalRate: selectedRate == nil) }
                     else { hidpi.disable(display.id) }
                 }))
                 .toggleStyle(.switch)
@@ -142,7 +148,7 @@ struct DisplayHardwareControls: View {
                                     Text("\(value.formatted(.number.precision(.fractionLength(0...2)))) Hz").tag(value)
                                 }
                             }.frame(width: 100)
-                            Button(DisplayControlText.apply) { hidpi.enable(display.id, profile: selectedProfile) }
+                            Button(DisplayControlText.apply) { hidpi.enable(display.id, profile: selectedProfile, preservePhysicalRate: selectedRate == nil) }
                                 .disabled(!VirtualHiDPIService.valid(width: selectedProfile.width, height: selectedProfile.height,
                                                                      rate: selectedProfile.rate)
                                           || hidpi.switching != nil || hidpi.confirmationDisplay != nil)

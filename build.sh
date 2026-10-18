@@ -590,6 +590,11 @@ if (( TEST )); then
         -target "$TARGET" -sdk "$SDK" "${SDK_COMPAT_FLAGS[@]}" \
         "${VM_STATISTICS_COMPAT_FLAGS[@]}" "${TEST_SOURCES[@]}" -o build/metrics-tests
     test_status=0
+    clang -fobjc-arc -target "$TARGET" -isysroot "$SDK" \
+        -I Sources/AudioFeedbackBridge/include Sources/AudioFeedbackBridge/AudioFeedbackBridge.m \
+        Tests/Fixtures/AudioFeedbackBridgeTests.m -framework AVFAudio -framework Foundation \
+        -o build/objects/tests/audio-feedback-bridge-tests
+    ./build/objects/tests/audio-feedback-bridge-tests || test_status=1
     ./build/metrics-tests "${TEST_ARGS[@]}" || test_status=$?
     if (( ${#TEST_ARGS} == 0 )); then
         ./Tests/PreferenceCleanupTests.sh || test_status=1
@@ -599,6 +604,12 @@ if (( TEST )); then
     discard_test_preferences || test_status=1
     exit $test_status
 fi
+
+echo "▸ Compiling audio feedback exception boundary…"
+mkdir -p build/objects/AudioFeedbackBridge
+clang -c -fobjc-arc -target "$TARGET" -isysroot "$SDK" \
+    -I Sources/AudioFeedbackBridge/include Sources/AudioFeedbackBridge/AudioFeedbackBridge.m \
+    -o build/objects/AudioFeedbackBridge/AudioFeedbackBridge.o
 
 echo "▸ Compiling virtual display bridge…"
 mkdir -p build/objects/VirtualDisplayBridge
@@ -636,6 +647,7 @@ swiftc "${APP_OPTIMIZATION_FLAGS[@]}" -incremental -enable-batch-mode -j "$(sysc
     -target "$TARGET" -sdk "$SDK" "${SDK_COMPAT_FLAGS[@]}" "${VM_STATISTICS_COMPAT_FLAGS[@]}" "${HID_EVENT_SYSTEM_FLAGS[@]}" \
     "${BUILD_VARIANT_FLAGS[@]}" \
     -I Sources/VirtualDisplayBridge/include build/objects/VirtualDisplayBridge/VirtualDisplayBridge.o \
+    -I Sources/AudioFeedbackBridge/include build/objects/AudioFeedbackBridge/AudioFeedbackBridge.o \
     "${APP_SOURCES[@]}" -o "build/$EXECUTABLE"
 
 echo "▸ Compiling protected fan helper…"

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import AVFAudio
+import AudioFeedbackBridge
 import Foundation
 
 /// Input/UI only snapshots state. Audio preparation and playback never run on main.
@@ -61,8 +62,8 @@ final class VolumeFeedbackAudioPlayer {
     private var routeUID: String?
 
     func prepare(uid: String?) {
-        if let uid, uid == routeUID, engine?.isRunning == true { return }
-        engine?.stop()
+        if let uid, uid == routeUID, let engine, let node, VSDAudioFeedbackReady(engine, node) { return }
+        if let engine { VSDAudioFeedbackStop(engine) }
         engine = nil; node = nil; routeUID = nil
         guard let uid else { return }
         do {
@@ -77,12 +78,9 @@ final class VolumeFeedbackAudioPlayer {
             guard let buffer else { return }
             let engine = AVAudioEngine()
             let node = AVAudioPlayerNode()
-            engine.attach(node)
-            engine.connect(node, to: engine.mainMixerNode, format: buffer.format)
-            node.volume = 1 // Output gain (native or physical DDC) sets the loudness once.
-            engine.prepare()
-            try engine.start() // Uses the current system media output, never the alert output.
-            node.play()
+            // Hardware changes can raise Objective-C exceptions even after
+            // engine.start succeeds. Contain them in the native bridge.
+            guard VSDAudioFeedbackStart(engine, node, buffer) else { return }
             self.engine = engine; self.node = node; routeUID = uid
         } catch {
             engine = nil; node = nil; routeUID = nil
@@ -91,7 +89,12 @@ final class VolumeFeedbackAudioPlayer {
 
     func play(uid: String) {
         prepare(uid: uid)
-        guard let node, let buffer, engine?.isRunning == true else { return }
-        node.scheduleBuffer(buffer, at: nil, options: .interrupts, completionHandler: nil)
+        guard let engine, let node, let buffer else { return }
+        if !VSDAudioFeedbackSchedule(engine, node, buffer) {
+            // Retry on the next accepted click, even when the output UID is
+            // unchanged (e.g. HDMI reconnect or a sample-rate renegotiation).
+            VSDAudioFeedbackStop(engine)
+            self.engine = nil; self.node = nil; routeUID = nil
+        }
     }
 }

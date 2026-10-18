@@ -46,6 +46,7 @@ enum SystemOutputControlTests {
     }
     static func run(_ suite: TestSuite) {
         VolumeFeedbackSoundTests.run(suite)
+        VolumeFeedbackAudioPlayerTests.run(suite)
 
         let monitors: [DisplayKeyRoutingSupport.Monitor] = [
             .init(id: 2, identity: "left", name: "PA328QV"),
@@ -221,5 +222,60 @@ enum VolumeFeedbackSoundTests {
         suite.expect(Player.plays == 4, "key preview can unmute and sound immediately before slow hardware confirmation")
         suite.expect(Player.onlyWorker, "audio initialization, preparation and playback all stay off main")
         suite.expect(SettingsBackupSupport.exportKeys().contains(DefaultsKey.volumeFeedbackSoundEnabled), "the preference remains backed up")
+    }
+}
+
+/// Execute the production player state machine without touching an audio device.
+enum VolumeFeedbackAudioPlayerTests {
+    typealias AVAudioFrameCount = UInt32
+    final class AVAudioFile {
+        let processingFormat = 1
+        let length = 1
+        init(forReading url: URL) throws { }
+        func read(into buffer: AVAudioPCMBuffer) throws { }
+    }
+    final class AVAudioPCMBuffer { init?(pcmFormat: Int, frameCapacity: UInt32) { } }
+    final class AVAudioEngine {
+        static var latest: AVAudioEngine?
+        var running = false
+        init() { Self.latest = self }
+    }
+    final class AVAudioPlayerNode { var playing = false }
+    static var starts = 0, clicks = 0, stops = 0
+    static var startFails = false, scheduleFails = false
+    static func VSDAudioFeedbackReady(_ engine: AVAudioEngine, _ node: AVAudioPlayerNode) -> Bool {
+        engine.running && node.playing
+    }
+    static func VSDAudioFeedbackStart(_ engine: AVAudioEngine, _ node: AVAudioPlayerNode, _ buffer: AVAudioPCMBuffer) -> Bool {
+        starts += 1
+        guard !startFails else { return false }
+        engine.running = true; node.playing = true; return true
+    }
+    static func VSDAudioFeedbackStop(_ engine: AVAudioEngine) { stops += 1; engine.running = false }
+    static func VSDAudioFeedbackSchedule(_ engine: AVAudioEngine, _ node: AVAudioPlayerNode, _ buffer: AVAudioPCMBuffer) -> Bool {
+        guard !scheduleFails, VSDAudioFeedbackReady(engine, node) else { return false }
+        clicks += 1; return true
+    }
+    static func run(_ suite: TestSuite) {
+        let player = VolumeFeedbackAudioPlayer()
+        startFails = true
+        player.prepare(uid: "hdmi")
+        suite.expect(starts == 1 && clicks == 0, "an unavailable route does not mark a feedback player ready")
+        startFails = false
+        player.play(uid: "hdmi")
+        suite.expect(starts == 2 && clicks == 1, "the same output UID retries after a transient start failure")
+        for _ in 0..<8 { player.play(uid: "hdmi") }
+        suite.expect(starts == 2 && clicks == 9, "rapid accepted taps each schedule without restarting a healthy engine")
+        AVAudioEngine.latest?.running = false
+        player.play(uid: "hdmi")
+        suite.expect(starts == 3 && clicks == 10, "a hardware configuration change rebuilds even with an unchanged UID")
+        scheduleFails = true
+        player.play(uid: "hdmi")
+        suite.expect(clicks == 10 && AVAudioEngine.latest?.running == false, "a schedule failure invalidates the stopped player")
+        scheduleFails = false
+        player.play(uid: "hdmi")
+        suite.expect(starts == 4 && clicks == 11, "the next tap recovers after a device disappears during scheduling")
+        player.prepare(uid: nil)
+        suite.expect(AVAudioEngine.latest?.running == false, "disabling feedback releases the active output engine")
     }
 }
