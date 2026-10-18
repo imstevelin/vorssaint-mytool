@@ -3,10 +3,11 @@ import AppKit
 import ApplicationServices
 import Carbon.HIToolbox
 
-/// Read-only overlay. TIS stays on the main thread; caret reads are serialized
+/// Non-interactive overlay. TIS stays on the main thread; caret reads are serialized
 /// off it, bounded by messaging timeouts and one in-flight sample.
 final class InputSourceIndicatorService {
     static let shared = InputSourceIndicatorService()
+    private let reader = InputSourceCaretReader()
     private let queue = DispatchQueue(label: "com.imstevelin.input-source-caret", qos: .utility)
     private var timer: Timer?
     private var tokens: [(NotificationCenter, NSObjectProtocol)] = []
@@ -21,6 +22,7 @@ final class InputSourceIndicatorService {
     private var observationGeneration: UInt = 0
     private var running = false
     private var sourceName = ""
+    private var sourceMark = ""
     private var screenLocked = false
     private var displaysSleeping = false
     private var screenUnavailable: Bool { screenLocked || displaysSleeping }
@@ -83,9 +85,14 @@ final class InputSourceIndicatorService {
         refresh()
     }
 
-    func suspend() {
+    func suspend(restoringSynchronously: Bool = false) {
         generation &+= 1
         running = false
+        if restoringSynchronously {
+            queue.sync { reader.reset() }
+        } else {
+            queue.async { [reader] in reader.reset() }
+        }
         timer?.invalidate()
         timer = nil
         for (center, token) in tokens { center.removeObserver(token) }
@@ -108,8 +115,8 @@ final class InputSourceIndicatorService {
             panel?.orderOut(nil)
             return
         }
-        // Use the actual source name: ZH alone cannot distinguish 注音 and 倉頡.
         sourceName = reading.name.isEmpty ? reading.code : reading.name
+        sourceMark = InputSourceIndicatorSupport.badgeText(sourceID: reading.id, name: reading.name, code: reading.code)
     }
 
     private func refresh() {
@@ -125,7 +132,7 @@ final class InputSourceIndicatorService {
         let ticket = generation
         sampling = true
         queue.async { [weak self] in
-            let result = Self.caret(pid: pid)
+            let result = self?.reader.read(application: app)
             DispatchQueue.main.async {
                 guard let self else { return }
                 self.sampling = false
@@ -141,44 +148,6 @@ final class InputSourceIndicatorService {
                 self.show(axCaret: result.rect)
             }
         }
-    }
-
-    private static func attribute(_ element: AXUIElement, _ name: String) -> CFTypeRef? {
-        var value: CFTypeRef?
-        guard AXUIElementCopyAttributeValue(element, name as CFString, &value) == .success else { return nil }
-        return value
-    }
-
-    private static func caret(pid: pid_t) -> (element: AXUIElement, rect: CGRect)? {
-        let app = AXUIElementCreateApplication(pid)
-        AXUIElementSetMessagingTimeout(app, 0.12)
-        guard let focused = attribute(app, kAXFocusedUIElementAttribute),
-              CFGetTypeID(focused) == AXUIElementGetTypeID() else { return nil }
-        let element = focused as! AXUIElement
-        AXUIElementSetMessagingTimeout(element, 0.12)
-        guard let role = attribute(element, kAXRoleAttribute) as? String,
-              [kAXTextFieldRole, kAXTextAreaRole, kAXComboBoxRole].contains(role),
-              (attribute(element, kAXSubroleAttribute) as? String) != "AXSecureTextField",
-              let selection = attribute(element, kAXSelectedTextRangeAttribute),
-              CFGetTypeID(selection) == AXValueGetTypeID() else { return nil }
-        let value = selection as! AXValue
-        var range = CFRange()
-        guard AXValueGetType(value) == .cfRange, AXValueGetValue(value, .cfRange, &range),
-              range.location >= 0, range.length >= 0,
-              range.location <= Int.max - range.length else { return nil }
-        // A selection or marked composition still has an insertion endpoint.
-        range.location += range.length
-        range.length = 0
-        guard let caretRange = AXValueCreate(.cfRange, &range) else { return nil }
-        var bounds: CFTypeRef?
-        guard AXUIElementCopyParameterizedAttributeValue(element,
-                    kAXBoundsForRangeParameterizedAttribute as CFString, caretRange, &bounds) == .success,
-              let bounds, CFGetTypeID(bounds) == AXValueGetTypeID() else { return nil }
-        let rectValue = bounds as! AXValue
-        var rect = CGRect.zero
-        guard AXValueGetType(rectValue) == .cgRect, AXValueGetValue(rectValue, .cgRect, &rect),
-              InputSourceIndicatorSupport.caretIsValid(rect) else { return nil }
-        return (element, rect)
     }
 
     private func removeAXObserver() {
@@ -243,16 +212,14 @@ final class InputSourceIndicatorService {
             window.hidesOnDeactivate = false
             window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .ignoresCycle]
             window.isReleasedWhenClosed = false
-            let background = NSVisualEffectView()
-            background.material = .hudWindow
-            background.blendingMode = .behindWindow
-            background.state = .active
+            let background = NSView()
             background.wantsLayer = true
+            background.layer?.backgroundColor = NSColor.systemBlue.cgColor
             background.layer?.cornerRadius = 9
             background.layer?.masksToBounds = true
             let text = NSTextField(labelWithString: "")
-            text.font = .systemFont(ofSize: 11, weight: .semibold)
-            text.textColor = .labelColor
+            text.font = .systemFont(ofSize: 10, weight: .medium)
+            text.textColor = .white
             text.alignment = .center
             text.lineBreakMode = .byTruncatingTail
             background.addSubview(text)
@@ -261,15 +228,12 @@ final class InputSourceIndicatorService {
             label = text
         }
         guard let panel, let label else { return }
-        label.stringValue = sourceName
-        // NSTextField's intrinsic size can remain constrained by its previous
-        // frame after a shorter source. Measure the untruncated string instead.
-        let font = label.font ?? NSFont.systemFont(ofSize: 11, weight: .semibold)
-        let width = min(240, max(32, ceil((sourceName as NSString).size(withAttributes: [.font: font]).width) + 28))
-        let size = CGSize(width: width, height: 24)
+        label.stringValue = sourceMark
+        label.setAccessibilityLabel(sourceName)
+        let size = CGSize(width: 18, height: 18)
         let frame = InputSourceIndicatorSupport.badgeFrame(caret: caret, size: size, visibleFrame: screen.visibleFrame)
         if panel.frame != frame { panel.setFrame(frame, display: true) }
-        label.frame = CGRect(x: 8, y: 5, width: width - 16, height: 15)
+        label.frame = CGRect(x: 0, y: 2, width: 18, height: 14)
         if !panel.isVisible { panel.orderFrontRegardless() }
     }
 }

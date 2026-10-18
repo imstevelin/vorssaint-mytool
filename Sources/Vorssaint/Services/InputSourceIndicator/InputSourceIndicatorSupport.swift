@@ -2,8 +2,31 @@
 import Foundation
 
 /// AX screen coordinates have their origin at the top left of the primary display.
-/// Never substitute a mouse pointer or the bounds of an entire editor for a caret.
+/// Exact caret and explicitly separate field-edge anchors share this conversion.
 enum InputSourceIndicatorSupport {
+    static func badgeText(sourceID: String, name: String, code: String) -> String {
+        let id = sourceID.lowercased()
+        let text = name.lowercased()
+        if id.contains("zhuyin") || id.contains("bopomofo") || text.contains("注音") { return "注" }
+        if id.contains("cangjie") || text.contains("倉頡") || text.contains("仓颉") { return "倉" }
+        if id.contains("sucheng") || text.contains("速成") { return "速" }
+        if id.contains("pinyin") || text.contains("拼音") { return "拼" }
+        if id.contains("wubi") || text.contains("五筆") || text.contains("五笔") { return "五" }
+        switch code.uppercased() {
+        case "EN": return "A"
+        case "ZH": return "中"
+        case "JA": return "あ"
+        case "KO": return "한"
+        default: return String((code.isEmpty ? name : code).prefix(1)).uppercased()
+        }
+    }
+
+    static func fieldAnchor(_ rect: CGRect) -> CGRect? {
+        guard rect.minX.isFinite, rect.minY.isFinite, rect.width.isFinite, rect.height.isFinite,
+              rect.width >= 4, rect.height >= 4, rect.width <= 20000, rect.height <= 20000 else { return nil }
+        return CGRect(x: rect.minX, y: rect.maxY, width: 0, height: 1)
+    }
+
     static func caretIsValid(_ rect: CGRect) -> Bool {
         rect.origin.x.isFinite && rect.origin.y.isFinite
             && rect.width.isFinite && rect.height.isFinite

@@ -10,7 +10,7 @@
 | HiDPI／顯示控制 | VirtualHiDPIService、BrightnessService、DisplayRecoverySupport、VirtualDisplayBridge／Host | 恢復 helper、色彩／更新率限制、DDC、鏡像與硬體按鍵路徑 | display-restoration、software-dimming、resource-usage；實體螢幕、色彩、睡醒與斷線 |
 | 藍牙音訊修復 | BluetoothSleepService／Support | 僅指定裝置成為預設輸出才動作、保留離線選擇、30 分鐘間隔、防重啟循環與可撤銷授權 | app-management；指定／未指定裝置連線及實際音訊 |
 | 音量／回饋 | SystemOutputControl、VolumeFeedbackSound、AudioFeedbackBridge、AppVolumeMixer、PreciseVolumeRollerService | CoreAudio 優先、DDC fallback、系統與島共用音量／靜音行為、每次點按回饋；音訊重配置例外不可跨入 Swift，失敗可重試 | mixer、app-management、notch、原生例外注入；耳機拔除、歸零靜音、粗階音量、DDC 喇叭 |
-| 游標輸入法提示 | InputSourceIndicatorService／Support、InputSourceSelection | 手動啟用、讀取實際 TIS 來源、文字游標旁常駐、不攔截輸入；密碼／鎖屏／無可靠 AX 位置隱藏 | features；實際 App 輸入／切換、組字、多螢幕位置需實機確認；[設計與驗證](verification/input-source-indicator-2026-10-19.md) |
+| 游標輸入法提示 | InputSourceIndicatorService／Support、InputSourceSelection | 手動啟用、實際 TIS 來源的小型「注／A」圓標、游標常駐／輸入欄 fallback；不攔截輸入、密碼／鎖屏隱藏，Electron 手動 AX 狀態可還原 | features；實際 App 輸入／切換、組字、多螢幕位置需實機確認；[設計與驗證](verification/input-source-indicator-2026-10-19.md) |
 | 小夥伴 | NotchMascotSupport／View、NotchService、NotchView | 五種自訂動物、正面單色、可見輪廓置中、26–36 秒來訪、游標／摸摸、減少動態與不可見暫停 | notch；展開／收合、不同內容頁、窄畫面、游標互動、實機資源使用 |
 | AI 日誌效能 | AgentUsageService／Store 與各 reader | 可取消掃描、非阻塞停用、佇列保存順序、Copilot 淺層探索；整合官方 reader protocol／多帳號 | agents、resource-usage；長歷史啟動與停用／重啟 |
 | 錄影／媒體效能 | RecorderPointerSpool、ScreenRecorderService、MediaVideoTargetEncoder | 完整游標精度、磁碟失敗 fallback、串流編碼、取消及聲軌；整合官方 GIF／影格修正 | recorder、recording、media、resource-usage；長錄影、實際收音及取消 |
