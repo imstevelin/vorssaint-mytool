@@ -35,3 +35,5 @@
 ## HiDPI 與瀏覽器更新率驗收
 
 模式標籤、CoreGraphics 刷新率與瀏覽器實際動畫幀率分開記錄。2026-10-18 在 PA328QV 實測，動態虛擬螢幕已為 75Hz，但 Dia 的 GPU 記錄出現 missing NSScreen，TestUFO 仍為 60fps；重新建立 Dia GPU 程序並重新載入後恢復 75fps。只開新視窗未恢復。使用者可先保留 HiDPI 設定，再以 ⌘Q 完全退出 Dia 後開啟測試；再切換 HiDPI 可能重現。App 不得自行終止瀏覽器來掩蓋問題。完整證據與限制見 [本輪驗證](verification/display-refresh-audio-2026-10-18.md)。
+
+後續重接修正改為確認實體模式、AppKit 與 ICC 連續穩定，並等待舊 host 完成 ColorSync 清理。使用者在 Developer 版實際拔插後回報色彩不再閃爍，但 Dia 仍為 60fps，並決定暫不追修瀏覽器相容性問題；詳見 [重接驗收](verification/hidpi-reconnect-2026-10-18.md)。保留這個限制，不以自動重啟瀏覽器處理。

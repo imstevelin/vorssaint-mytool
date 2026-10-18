@@ -17,5 +17,22 @@
 
 - display-restoration：249 checks 通過；原生音訊例外 fixture：14 checks 通過。
 - 新增真實 readiness 狀態機的回歸，涵蓋晚到 ICC、AppKit／清理未就緒、實體 ID 更換、連續穩定與有限重試。
-- 完整測試、建置、CI 與實機重接驗收待完成；尚未宣稱持續色彩閃爍或 Dia 無須退出即可恢復 75Hz 已解決。
+- 本機完整測試 `TESTS OK (113347 checks)`、偏好清理／移除／Developer 安裝隔離通過。Developer 建置、安裝、selftest 與 strict deep codesign 通過，建置標記為 `e27656fa`。
+- Developer 僅啟用顯示器功能，正式版退出以避免同時控制。沿用正式版的 HiDPI 設定，Developer 舊偏好另行備份；初次啟動面板亮度顯示 44%，已恢復為切換前的 100%，對比維持 80%、音量 28% 與靜音。
+- 使用者實際依「Dia 保持開啟、拔除外接螢幕、等內建穩定再接回、等待約 10 秒、不手動切換 HiDPI」測試，回報未再見到色彩閃爍，TestUFO 仍為 60。此為本次一次重接的使用者驗收，尚未代表所有螢幕、睡醒或長時間情境皆通過。
+- Dia 的 60fps 尚未修復。使用者於本輪明確決定先不處理，保留為已知相容性限制；不得把它改寫為已解決，也不擴大到瀏覽器／GPU 操作。
 - 不自動退出 Dia、重啟其 GPU、替換使用者 ICC、切成 sRGB、修改全域色彩設定或無限反覆切換 HiDPI。
+
+## 交付與暫緩範圍
+
+- 使用者驗收後再次量測：虛擬顯示器約 75.003fps、實體鏡像端約 74.977fps；此為 CVDisplayLink 回呼，不等同面板攝影或瀏覽器所有呈現路徑測量。
+- 正式建置、`SELFTEST OK`、strict deep codesign 通過；相同程式已替換 `/Applications/實用小工具.app`，安裝檔與 stage 主執行檔 SHA-256 相同：`60b22e9becd7875c54a7d76a8741d8054adb87706c6f20b6513040b1fd5da664`。
+- Developer 已退出並還原測試前偏好。正式版啟動後自動恢復 2560×1440、2×、75Hz，回饋音啟用；亮度恢復 100%、對比 80%、音量 28%、靜音保留。正式版重新啟動的結果不代替另一次實體拔插驗收。
+- 舊正式 App／偏好保存在 `~/Library/Application Support/實用小工具/Backups/`，檔名帶 `before-reconnect-e27656fa`。維持未公開版本 1.1.1 build12；這次是本機修正部署，未建立 tag 或 GitHub Release。
+- 後續若沒有新的實際使用問題，不再對 Dia 的 60fps 進行程式修改、瀏覽器設定調整或 GPU 重啟。現有證據較支持 Dia／動態虛擬螢幕的相容性限制，不能宣稱其內部全部原因已確認。
+
+## 最終整合
+
+- [Fork CI 39137288233](https://github.com/imstevelin/vorssaint-mytool/actions/runs/39137288233) 全部通過：macOS 26 為 113347 checks，Swift 6.0.3／macOS 15 為 113346 checks；兩套原生例外 fixture 皆 14 checks，selftest 與安裝隔離通過；維護工具 5 項通過，候選 DMG 完整性驗證通過。
+- [PR #4](https://github.com/imstevelin/vorssaint-mytool/pull/4) 一般 merge 合入 main，合併提交 `3f06b54ec93fb993a249199644b33441c80422d1`，修正分支驗證為 main 祖先後清理。
+- 最後提交僅更新文件，程式來源與已驗證的 `e27656fa75a5376b2da72bf7d7acc4f378fae170` 相同；公開 Release 未更新。
