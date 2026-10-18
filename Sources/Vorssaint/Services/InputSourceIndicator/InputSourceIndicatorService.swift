@@ -265,7 +265,7 @@ final class InputSourceIndicatorService {
         // NSTextField's intrinsic size can remain constrained by its previous
         // frame after a shorter source. Measure the untruncated string instead.
         let font = label.font ?? NSFont.systemFont(ofSize: 11, weight: .semibold)
-        let width = min(240, max(32, ceil((sourceName as NSString).size(withAttributes: [.font: font]).width) + 20))
+        let width = min(240, max(32, ceil((sourceName as NSString).size(withAttributes: [.font: font]).width) + 28))
         let size = CGSize(width: width, height: 24)
         let frame = InputSourceIndicatorSupport.badgeFrame(caret: caret, size: size, visibleFrame: screen.visibleFrame)
         if panel.frame != frame { panel.setFrame(frame, display: true) }
