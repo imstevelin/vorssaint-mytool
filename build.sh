@@ -249,6 +249,8 @@ if (( TEST )); then
     python3 Tests/generate_sources.py
     TEST_OBJECT_DIR="build/objects/tests"
     mkdir -p "$TEST_OBJECT_DIR"
+    clang -target "$TARGET" -isysroot "$SDK" Tests/Fixtures/DetachedFDProbe.c \
+        -o "$TEST_OBJECT_DIR/detached-fd-probe"
     TEST_SOURCES=(
         Sources/Vorssaint/Services/Media/MediaSupport.swift
         Sources/Vorssaint/Services/Media/MediaVideoTargetEncoder.swift

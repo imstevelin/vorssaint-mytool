@@ -4467,6 +4467,10 @@ extension NotchService {
     @discardableResult
     func greetMascot() -> Bool {
         guard NotchMascotSupport.isEnabled(), mascotVisit == nil else { return false }
+        if mascotResidentShows {
+            mascotReaction = NotchMascotReactionEvent(id: UUID(), reaction: .celebrate, start: CACurrentMediaTime())
+            return true
+        }
         guard canHostMascotVisit() else { return false }
         nextMascotVisitWork?.cancel()
         beginMascotVisit(greeting: .wink, asked: true)
@@ -4727,10 +4731,10 @@ extension NotchService {
         // is over.
         guard previous == nil || mascotVisit == nil else { return }
         mascotSideAtSync = side
-        // Across, behind the camera, where it rests closed.
+        // The fork keeps a resident companion in the expanded island too.
         guard let previous, previous != side, !geometry.floats,
               !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion,
-              mascotRestsInView, canHostMascotVisit() else { return }
+              mascotResidentShows || (mascotRestsInView && canHostMascotVisit()) else { return }
         let cross = NotchMascotVisit(id: UUID(), kind: .cross, greeting: .wink, start: CACurrentMediaTime())
         mutatePresentation { mascotVisit = cross }
         mascotVisitWork?.cancel()
@@ -4832,12 +4836,12 @@ extension NotchService {
             DispatchQueue.main.asyncAfter(deadline: .now() + (pending.notBefore - now), execute: work)
             return
         }
-        guard mascotVisit == nil, canHostMascotVisit() else { return }
+        guard mascotVisit == nil, mascotResidentShows || canHostMascotVisit() else { return }
         // Back at rest as the activity that held its place leaves, it
         // crossfades in there first, and a hop played at once would be half
         // seen over the strip going away: the reaction waits until the island
         // draws it at rest and the crossfade is over.
-        if mascotRestsInView, !mascotBridging {
+        if mascotRestsInView, !mascotResidentShows, !mascotBridging {
             guard mascotRestedInView else { return }
             let shows = mascotBackAtRest + NotchMascotMotion.restCrossfade
             if now < shows {
@@ -4851,8 +4855,9 @@ extension NotchService {
         // Its wait for the next song counts from a groove it played, not one
         // that never came, as when music started right after another reaction.
         if pending.reaction == .groove { lastMascotGroove = now }
-        // An activity that has just taken its place finds it still there.
-        if mascotRestsInView {
+        // The expanded resident and the closed resting companion both react
+        // in place; a closed activity instead gets a one-off cameo.
+        if mascotResidentShows || mascotRestsInView {
             let event = NotchMascotReactionEvent(id: UUID(), reaction: pending.reaction, start: now)
             mascotReaction = event
             // Standing in the window's own layer as it steps into a notice or

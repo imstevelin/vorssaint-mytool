@@ -1124,6 +1124,10 @@ def main():
               .replace("NotchMascotSupport.hidesWhenIdle()", "hidesWhenIdle")
               .replace("CACurrentMediaTime()", "mediaTime()")
           + "}\n}\n")
+    write("NotchResidentReaction.swift", "import Foundation\nimport QuartzCore\n"
+          + "extension NotchResidentReactionTests {\nfinal class Service: State {\n"
+          + declaration(notch, "    fileprivate func flushMascotReaction()").replace("fileprivate func", "func", 1)
+          + "}\n}\n")
     write("NotchKeyMonitor.swift", "import Foundation\nextension NotchKeyMonitorTests {\nfinal class Service: State {\n"
           + declaration(notch, "    private func installEventMonitors()").replace("private func", "func", 1)
           + "}\n}\n")

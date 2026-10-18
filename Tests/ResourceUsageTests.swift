@@ -128,9 +128,14 @@ enum ResourceUsageTests {
     }
 
     private static func pointerSpool(_ suite: TestSuite) {
-        let samples = (0..<12000).map { index in
-            RecorderMotion.Sample(time: Double(index) / 125, point: CGPoint(x: Double(index) / 12345.6789, y: -Double(index) / 9876.54321),
-                                  shapeIndex: index % 7, isPointerVisible: index % 5 != 0)
+        var samples: [RecorderMotion.Sample] = []
+        samples.reserveCapacity(12000)
+        for index in 0..<12000 {
+            let value = Double(index)
+            let point = CGPoint(x: value / 12345.6789, y: -value / 9876.54321)
+            let sample = RecorderMotion.Sample(time: value / 125, point: point,
+                                               shapeIndex: index % 7, isPointerVisible: index % 5 != 0)
+            samples.append(sample)
         }
         for mode in 0..<3 {
             var writes = 0

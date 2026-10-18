@@ -1072,20 +1072,47 @@ enum UpdateFeatureTests {
         let holderDescriptor = open(fdHolder.path, O_RDWR | O_CREAT | O_TRUNC, 0o644)
         suite.expect(holderDescriptor >= 3, "fd probe holds a descriptor above stdio")
         do {
-            let probe = "{ /bin/echo leaked >&\(holderDescriptor); } 2>/dev/null; INHERITED=$?; "
-                + "{ /bin/echo stdio; } 2>/dev/null; STDIO=$?; "
-                + "/bin/echo \"$INHERITED $STDIO\" > \(UpdateInstallerSupport.shellSingleQuoted(fdReport.path))"
-            let child = try DetachedProcess.spawn("/bin/sh", ["-c", probe])
+            var identity = stat()
+            suite.expect(fstat(holderDescriptor, &identity) == 0, "fd probe records the held file identity")
+            let probe = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+                .appendingPathComponent("build/objects/tests/detached-fd-probe").path
+            let arguments = [String(holderDescriptor), fdReport.path,
+                             String(UInt64(bitPattern: Int64(identity.st_dev))), String(identity.st_ino)]
+            // Positive control: a plain POSIX spawn must be detected as a
+            // real leak. A child may reuse the same number for a different
+            // file, which the old shell-redirection probe misreported on CI.
+            let argv: [UnsafeMutablePointer<CChar>?] = ([probe] + arguments).map { strdup($0) } + [nil]
+            defer { for argument in argv { free(argument) } }
+            var controlActions: posix_spawn_file_actions_t?
+            posix_spawn_file_actions_init(&controlActions)
+            defer { posix_spawn_file_actions_destroy(&controlActions) }
+            posix_spawn_file_actions_addopen(&controlActions, 0, "/dev/null", O_RDONLY, 0)
+            posix_spawn_file_actions_addopen(&controlActions, 1, "/dev/null", O_WRONLY, 0)
+            posix_spawn_file_actions_addopen(&controlActions, 2, "/dev/null", O_WRONLY, 0)
+            var control: pid_t = 0
+            let controlStatus = posix_spawn(&control, probe, &controlActions, nil, argv, environ)
+            suite.expect(controlStatus == 0, "native fd probe positive control starts")
+            if controlStatus == 0 {
+                var result: Int32 = 0
+                waitpid(control, &result, 0)
+                suite.expect(result == 0 && (try? String(contentsOf: fdReport, encoding: .utf8)) == "1 1",
+                             "the fd probe detects an intentionally inherited file and open stdio")
+                suite.expect((try? String(contentsOf: fdHolder, encoding: .utf8)) == "leaked",
+                             "positive control writes through the actual inherited file")
+            }
+            ftruncate(holderDescriptor, 0)
+            lseek(holderDescriptor, 0, SEEK_SET)
+            let child = try DetachedProcess.spawn(probe, arguments)
             var reaped: Int32 = 0
             waitpid(child, &reaped, 0)
             let report = ((try? String(contentsOf: fdReport, encoding: .utf8)) ?? "")
                 .trimmingCharacters(in: .whitespacesAndNewlines)
             let status = report.split(separator: " ").map(String.init)
-            suite.expect(status.count == 2 && status[0] != "0",
+            suite.expect(status.count == 2 && status[0] == "0",
                    "a detached child does not inherit this app's open descriptors (probe: \"\(report)\")")
             suite.expect(((try? String(contentsOf: fdHolder, encoding: .utf8)) ?? "").isEmpty,
                    "a detached child cannot write through a descriptor this app opened")
-            suite.expect(status.count == 2 && status[1] == "0",
+            suite.expect(status.count == 2 && status[1] == "1",
                    "a detached child still has stdout open (probe: \"\(report)\")")
         } catch {
             suite.expect(false, "detached fd probe failed: \(error.localizedDescription)")
