@@ -59,6 +59,29 @@ final class VirtualHiDPIService: ObservableObject {
     private var verificationPasses: [CGDirectDisplayID: Int] = [:]
     private var expectedColorProfiles: [CGDirectDisplayID: Data] = [:]
     private var autoAttempted = Set<String>()
+    private var reconnectGates: [String: ReconnectGate] = [:]
+    private var retiringHosts: [Process] = []
+
+    struct ReconnectSignature: Equatable {
+        let id: UInt32
+        let mode: Int32
+        let width: Int
+        let height: Int
+        let rate: Double
+        let color: Data
+    }
+    struct ReconnectGate {
+        private var previous: ReconnectSignature?
+        private var stable = 0
+        private(set) var attempts = 0
+        var exhausted: Bool { attempts >= 20 }
+        mutating func observe(_ sample: ReconnectSignature?) -> Bool {
+            attempts += 1
+            stable = sample != nil && sample == previous ? stable + 1 : (sample == nil ? 0 : 1)
+            previous = sample
+            return stable >= 4
+        }
+    }
     var hasPendingRecovery: Bool { baseline != nil && sessions.isEmpty && switching == nil }
     private var observers: [NSObjectProtocol] = []
     private let profilesKey = "virtualHiDPIProfilesLocalV1"
@@ -72,6 +95,7 @@ final class VirtualHiDPIService: ObservableObject {
         ) { [weak self] _ in
             DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
                 self?.autoAttempted.removeAll()
+                self?.reconnectGates.removeAll()
                 self?.topologyChanged()
             }
         })
@@ -134,6 +158,11 @@ final class VirtualHiDPIService: ObservableObject {
               CGDisplayIsBuiltin(id) == 0, CGDisplayIsOnline(id) != 0,
               let uuid = DisplayRecoverySnapshot.uuid(id),
               Self.valid(width: profile.width, height: profile.height, rate: profile.rate) else { return }
+        retiringHosts.removeAll { !$0.isRunning }
+        guard retiringHosts.isEmpty else {
+            failure = DisplayControlText.text("HiDPI 正在完成清理，請稍後再試", "HiDPI cleanup is still finishing; try again shortly")
+            return
+        }
         guard let colorProfile = DisplayColorProfile.data(for: id) else {
             failure = DisplayControlText.text("無法讀取螢幕色彩描述檔，已取消 HiDPI", "Cannot read the display color profile; HiDPI cancelled")
             return
@@ -236,7 +265,13 @@ final class VirtualHiDPIService: ObservableObject {
         _ = DisplayRecoverySnapshot.onlineIDs()
         let options = [kCGDisplayShowDuplicateLowResolutionModes: true] as CFDictionary
         let modes = CGDisplayCopyAllDisplayModes(virtual, options) as? [CGDisplayMode] ?? []
-        if DisplayRecoverySnapshot.onlineIDs().contains(virtual) {
+        // An online CG display is not necessarily visible to AppKit yet. Give
+        // consumers a standalone-screen notification before making it master.
+        let appKitReady = NSScreen.screens.contains {
+            ($0.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?.uint32Value == virtual
+        }
+        verificationPasses[id] = Self.stableVerificationCount(valid: appKitReady, previous: verificationPasses[id] ?? 0)
+        if DisplayRecoverySnapshot.onlineIDs().contains(virtual), verificationPasses[id, default: 0] >= 4 {
             var config: CGDisplayConfigRef?
             if CGBeginDisplayConfiguration(&config) == .success, let config {
                 let origin = CGDisplayBounds(id).origin
@@ -245,6 +280,7 @@ final class VirtualHiDPIService: ObservableObject {
                 let configured = modeConfigured && CGConfigureDisplayOrigin(config, virtual, Int32(origin.x), Int32(origin.y)) == .success
                     && CGConfigureDisplayMirrorOfDisplay(config, id, virtual) == .success
                 if configured && CGCompleteDisplayConfiguration(config, .forSession) == .success {
+                    verificationPasses[id] = 0
                     awaitVerification(id, token: token, attempts: 0); return
                 }
                 if !configured { CGCancelDisplayConfiguration(config) }
@@ -374,7 +410,12 @@ final class VirtualHiDPIService: ObservableObject {
     }
 
     private func stopHost(_ id: CGDirectDisplayID) {
-        if let host = hosts.removeValue(forKey: id), host.isRunning { host.terminate() }
+        if let host = hosts.removeValue(forKey: id), host.isRunning {
+            // SIGTERM cleanup resets the virtual ColorSync override. Do not
+            // create the same stable display identity until cleanup finishes.
+            retiringHosts.append(host)
+            host.terminate()
+        }
         journal?.hostPIDs = hosts.values.map(\.processIdentifier)
         if let journal, let journalURL { try? journal.save(to: journalURL) }
         if let url = hostRequests.removeValue(forKey: id) {
@@ -470,10 +511,21 @@ final class VirtualHiDPIService: ObservableObject {
         let online = Set(DisplayRecoverySnapshot.onlineIDs())
         let physicalUUIDs = Set(online.filter { !Self.isOwnedDisplay($0) }.compactMap(DisplayRecoverySnapshot.uuid))
         autoAttempted.formIntersection(physicalUUIDs)
+        reconnectGates = reconnectGates.filter { physicalUUIDs.contains($0.key) }
         for (id, session) in sessions where !online.contains(id)
             || DisplayRecoverySnapshot.uuid(id) != session.uuid
-            || (session.virtualID.map { !online.contains($0) } ?? false) {
+            || (session.virtualID.map { !online.contains($0) || CGDisplayMirrorsDisplay(id) != $0 } ?? false) {
+            // Replug can keep both IDs online while breaking the mirror. An
+            // existing Session alone is not evidence that HiDPI was restored.
+            if online.contains(id), DisplayRecoverySnapshot.uuid(id) == session.uuid {
+                guard session.original.restoringOnly(uuid: session.uuid) else {
+                    failure = DisplayControlText.text("HiDPI 恢復失敗，請手動關閉再開啟", "HiDPI recovery failed; toggle it manually")
+                    continue
+                }
+            }
             removeSession(id)
+            autoAttempted.remove(session.uuid)
+            reconnectGates[session.uuid] = nil
         }
         if sessions.isEmpty, baseline != nil { stopAll() }
         scheduleSavedProfiles()
@@ -487,8 +539,8 @@ final class VirtualHiDPIService: ObservableObject {
     }
 
     private func scheduleSavedProfiles() {
-        // A fixed short settle from the first topology event avoids both the
-        // old three-second pause and starvation from a notification burst.
+        // Coalesce notifications without restarting the timer. The bounded
+        // readiness gate below samples actual mode/ICC stability before apply.
         guard resumeWork == nil, !savedProfiles().isEmpty else { return }
         let work = DispatchWorkItem { [weak self] in
             guard let self else { return }
@@ -504,14 +556,38 @@ final class VirtualHiDPIService: ObservableObject {
               AppFeature.brightness.isAvailable,
               UserDefaults.standard.bool(forKey: DefaultsKey.brightnessControlEnabled) else { return }
         let saved = savedProfiles()
+        retiringHosts.removeAll { !$0.isRunning }
+        var pending = false
         for id in DisplayRecoverySnapshot.onlineIDs() where CGDisplayIsBuiltin(id) == 0
             && !Self.isOwnedDisplay(id) && sessions[id] == nil {
             guard let uuid = DisplayRecoverySnapshot.uuid(id), let profile = saved[uuid],
                   !autoAttempted.contains(uuid) else { continue }
+            let visible = NSScreen.screens.contains {
+                ($0.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?.uint32Value == id
+            }
+            var sample: ReconnectSignature?
+            if retiringHosts.isEmpty, visible, CGDisplayMirrorsDisplay(id) == 0,
+               let mode = CGDisplayCopyDisplayMode(id), let color = DisplayColorProfile.data(for: id),
+               DisplayColorProfile.matches(color, display: id) {
+                sample = ReconnectSignature(id: id, mode: mode.ioDisplayModeID,
+                    width: mode.width, height: mode.height, rate: mode.refreshRate, color: color)
+            }
+            var gate = reconnectGates[uuid] ?? ReconnectGate()
+            let ready = gate.observe(sample)
+            reconnectGates[uuid] = gate
+            guard ready else {
+                if gate.exhausted {
+                    autoAttempted.insert(uuid)
+                    failure = DisplayControlText.text("螢幕模式或色彩尚未穩定，請稍後手動開啟 HiDPI", "Display mode or color did not stabilize; enable HiDPI manually later")
+                } else { pending = true }
+                continue
+            }
+            reconnectGates[uuid] = nil
             autoAttempted.insert(uuid)
             // Only previously confirmed settings on the exact same physical UUID.
             enable(id, profile: profile, automaticallyConfirm: true)
             return
         }
+        if pending { scheduleSavedProfiles() }
     }
 }

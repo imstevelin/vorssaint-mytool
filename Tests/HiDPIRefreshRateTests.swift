@@ -12,6 +12,19 @@ enum HiDPIRefreshRateTests {
         var sessions: [UInt32: Session] = [:]
     }
     static func run(_ suite: TestSuite) {
+        let initial = ReconnectSignature(id: 2, mode: 1, width: 2560, height: 1440, rate: 75, color: Data([1]))
+        let calibrated = ReconnectSignature(id: 2, mode: 1, width: 2560, height: 1440, rate: 75, color: Data([2]))
+        let replacement = ReconnectSignature(id: 3, mode: 1, width: 2560, height: 1440, rate: 75, color: Data([2]))
+        var gate = ReconnectGate()
+        suite.expect(!gate.observe(initial) && !gate.observe(initial), "initial online notifications cannot auto-apply HiDPI")
+        suite.expect(!gate.observe(calibrated) && !gate.observe(calibrated), "late ColorSync calibration restarts readiness")
+        suite.expect(!gate.observe(nil), "missing AppKit screen or retiring host resets readiness")
+        suite.expect(!gate.observe(calibrated) && !gate.observe(calibrated) && !gate.observe(calibrated)
+                     && gate.observe(calibrated), "four consecutive actual mode and ICC observations permit resume")
+        suite.expect(!gate.observe(replacement), "numeric display replacement cannot reuse prior readiness")
+        var timeout = ReconnectGate()
+        for _ in 0..<20 { _ = timeout.observe(nil) }
+        suite.expect(timeout.exhausted, "unavailable display readiness has a finite retry budget")
         suite.expect(Service.preferredRefreshRate(requested: 60, physical: 75, cached: nil) == 75,
                      "a cold-start 60 Hz fallback never overrides the live 75 Hz physical mode")
         suite.expect(Service.preferredRefreshRate(requested: 60, physical: 144, cached: 75) == 144,

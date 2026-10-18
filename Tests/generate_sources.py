@@ -294,6 +294,8 @@ def main():
           + "}\n")
     write("HiDPIRefreshRate.swift", "import CoreGraphics\nimport Foundation\nextension HiDPIRefreshRateTests {\n"
           + declaration(hidpi, "    struct Profile:")
+          + declaration(hidpi, "    struct ReconnectSignature:")
+          + declaration(hidpi, "    struct ReconnectGate {")
           + "final class Service: Fixture {\n"
           + "".join(declaration(hidpi, prefix) for prefix in [
               "    static func recordPhysicalSize(", "    func presets(", "    func defaultProfile(",
