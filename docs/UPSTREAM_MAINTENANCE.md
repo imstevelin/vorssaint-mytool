@@ -101,7 +101,7 @@ git merge --no-ff <reviewed-upstream-sha>
 
 Fork 繼續使用自己的 `1.x` 版本與 bundle ID，release notes 另列「上游基準 SHA／相容的官方版本」。更新只指向 fork 的 GitHub Releases，保留現在的手動安裝通道；不能把來源改成官方二進位檔，否則會失去客製內容與身分延續。
 
-第一輪已修正 `.github/workflows/ci.yml` 的 fork 執行檔路徑，涵蓋 main／sync 分支及 PR，驗證自訂 helper 並上傳候選 DMG。現有 `release.yml` 限制官方 repo／actor，不能視為 fork 已有自動發版；應另建 fork 發版流程。Developer ID、公證與自動安裝列為後續獨立工作。
+第一輪已修正 `.github/workflows/ci.yml` 的 fork 執行檔路徑，涵蓋 main 的程式變更及 PR（sync 分支透過 PR 驗證），驗證自訂 helper 並上傳候選 DMG。現有 `release.yml` 限制官方 repo／actor，不能視為 fork 已有自動發版；應另建 fork 發版流程。Developer ID、公證與自動安裝列為後續獨立工作。本地原生動畫測試需在登入且螢幕解鎖時重跑；鎖定狀態的失敗應保留並記錄，透過 CI 的獨立圖形環境驗證，不能修改斷言來消除失敗。
 
 ## 操作入口
 

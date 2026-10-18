@@ -28,18 +28,19 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           git remote add upstream https://github.com/vorssaint/vorssaint-utils.git
-          python3 Tools/check-upstream.py --format json > upstream-report.json
+          python3 Tools/check-upstream.py --format json > "$RUNNER_TEMP/upstream-report.json"
           python3 - <<'PY'
-          import importlib.util, json, pathlib
+          import importlib.util, json, os, pathlib
           spec = importlib.util.spec_from_file_location('assessment', 'Tools/check-upstream.py')
           module = importlib.util.module_from_spec(spec)
           spec.loader.exec_module(module)
-          pathlib.Path('upstream-report.md').write_text(module.markdown(json.loads(pathlib.Path('upstream-report.json').read_text())))
+          report_dir = pathlib.Path(os.environ['RUNNER_TEMP'])
+          (report_dir / 'upstream-report.md').write_text(module.markdown(json.loads((report_dir / 'upstream-report.json').read_text())))
           PY
-          cat upstream-report.md >> "$GITHUB_STEP_SUMMARY"
+          cat "$RUNNER_TEMP/upstream-report.md" >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: upstream-assessment
-          path: upstream-report.*
+          path: ${{ runner.temp }}/upstream-report.*
           retention-days: 30
           if-no-files-found: error

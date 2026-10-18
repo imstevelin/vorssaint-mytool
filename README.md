@@ -189,29 +189,13 @@ Reorder or hide panel sections, choose a compact layout, and export settings to 
 
 ## Install
 
-With [Homebrew](https://brew.sh):
+Download this fork from [imstevelin/vorssaint-mytool Releases](https://github.com/imstevelin/vorssaint-mytool/releases), open the DMG and drag 實用小工具 into Applications. For the latest source, build with `./build.sh` or install with `./build.sh --install`.
 
-```sh
-brew install --cask vorssaint
-```
-
-Or grab the disk image from the [releases page](https://github.com/vorssaint/vorssaint-utils/releases) and drag Vorssaint into Applications.
-
-Builds are signed with an Apple Developer ID and notarized, so macOS opens them without a fuss and your permissions survive updates.
+This fork uses its own bundle identity and update channel. Its local Apple Development signing is not Developer ID distribution signing; current candidate DMGs are not notarized. Homebrew's `vorssaint` cask installs the official upstream app and does not contain these customizations.
 
 ## Uninstall
 
-With Homebrew:
-
-```sh
-brew uninstall --cask vorssaint
-```
-
-To remove Vorssaint completely, including its settings and permissions:
-
-```sh
-./Tools/uninstall.sh
-```
+Use this app's built-in full uninstall action to remove the fork's own settings and authorizations. Removing only `/Applications/實用小工具.app` keeps its preferences for a later reinstall. The official upstream app has a separate identity.
 
 ## Private by default
 

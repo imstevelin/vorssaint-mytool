@@ -1,0 +1,92 @@
+First upstream maintenance cycle — 2026-10-18 (Asia/Taipei)
+Final upstream: 597f27a6a1afef1f9f8a464405cd03b2b226c548 (71 commits)
+Integration merge: b3d70da15ed97ea4b672b8aec40af0150e3a8845
+Final code and CI revision: 4685b8a8e893f4ff27710e27945b96d33cc56212
+PR #2 main merge: 8c3172f3eb86a4aaef6c19331deaf053fc632cee
+Local SDK: MacOSX26.sdk; target arm64-apple-macosx14.0
+
+Initial 64-commit local regression (integration and resident-reaction fixes):
+harness: OK (334 checks, 0.09s)
+metrics: OK (480 checks, 0.26s)
+clipboard: OK (1196 checks, 0.89s)
+pointer-input: OK (1051 checks, 0.29s)
+scroll-modifier: OK (350 checks, 0.00s)
+linear-scroll: OK (16 checks, 0.00s)
+preferences: OK (111 checks, 0.13s)
+app-management: OK (416 checks, 0.25s)
+resource-usage: OK (40 checks, 0.86s)
+window-layout: OK (546 checks, 0.14s)
+media: OK (113 checks, 0.28s)
+mixer: OK (594 checks, 0.87s)
+audio-priority: OK (21 checks, 0.00s)
+shelf: OK (472 checks, 0.63s)
+overlays: OK (29 checks, 0.36s)
+updates: OK (1104 checks, 3.57s)
+repository: OK (313 checks, 6.41s)
+screenshots: OK (1370 checks, 8.06s)
+recorder: OK (725 checks, 20.45s)
+command-bar: OK (756 checks, 0.32s)
+transient-paste: OK (18 checks, 2.23s)
+notch: OK (66593 checks, 35.17s)
+switcher-model: OK (1881 checks, 0.25s)
+agents: OK (839 checks, 4.65s)
+features: OK (1172 checks, 0.09s)
+utilities: OK (489 checks, 0.43s)
+settings: OK (542 checks, 11.19s)
+feature-hub-layout: OK (18 checks, 10.25s)
+display-restoration: OK (231 checks, 0.03s)
+software-dimming: OK (31 checks, 0.00s)
+capture: OK (158 checks, 0.06s)
+keyboard: OK (20586 checks, 0.06s)
+storage: OK (177 checks, 0.07s)
+quit-protection: OK (207 checks, 0.01s)
+scratchpad: OK (105 checks, 0.01s)
+recording: OK (244 checks, 0.89s)
+network: OK (159 checks, 1.19s)
+app-updates: OK (330 checks, 0.06s)
+localization: OK (8231 checks, 0.37s)
+cleaner: OK (61 checks, 0.21s)
+uninstaller: OK (69 checks, 0.07s)
+force-quit: OK (21 checks, 0.23s)
+launcher: OK (103 checks, 0.01s)
+dock-autohide: OK (181 checks, 13.76s)
+spaces-order: OK (120 checks, 0.66s)
+switcher: OK (273 checks, 4.15s)
+keep-awake: OK (151 checks, 0.03s)
+wallpaper: OK (37 checks, 0.01s)
+emoji: OK (225 checks, 0.06s)
+TESTS OK (113289 checks)
+PREFERENCE CLEANUP TESTS OK
+UNINSTALL SPACES TESTS OK
+DEVELOPER INSTALL ISOLATION TESTS OK
+
+Final 71-commit candidate validation:
+Release build: PASS
+Bare executable selftest: SELFTEST OK
+Strict deep bundle signature: PASS
+Info.plist lint: PASS
+DisplayRecoveryHelper / VirtualDisplayHost arm64 architecture: PASS
+DMG integrity (hdiutil verify): PASS
+Candidate DMG SHA256: 10910f56788459ce777e83dcb779bb4380fc63df22bb486308b452daf24bc286
+
+Agents after Swift compatibility refactor: 839 checks PASS
+Maintenance tooling: 5 real-Git tests PASS
+Live assessment: 0 pending commits, 0 conflicts; stable v3.4.1
+Workflow YAML syntax: PASS
+PR #2 merge: 8c3172f3eb86a4aaef6c19331deaf053fc632cee
+Isolated git revert -m 1: PASS
+Restored tree: feeed0343cc3b39cf33eaab482ebdbe169837a45
+Exact baseline: c00f0211c80e10718bc3d0fe133e4742f718b743
+
+Final local full suite: 113326 checks, 21 graphical scrolling failures while screen locked on macOS 27.0.1.
+Unlocked rerun, same source: notch 66621 / dock-autohide 181 / switcher 273 checks PASS.
+TESTS OK (67075 checks); assertions unchanged.
+Cloud CI: https://github.com/imstevelin/vorssaint-mytool/actions/runs/39091793709
+Swift 6.0.3 / macOS 15: TESTS OK (113325 checks)
+macOS 26: TESTS OK (113326 checks)
+Both jobs: SELFTEST OK; preference cleanup, uninstall spaces, developer install isolation PASS.
+Maintenance tests: 5 PASS. Candidate DMG artifact uploaded.
+
+
+No production app replacement or release publication was performed.
+Physical display/Bluetooth/long-recording behavior and energy comparisons remain unverified.
