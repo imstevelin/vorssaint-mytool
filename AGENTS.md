@@ -20,6 +20,7 @@
 | `Sources/Vorssaint/Services/` | 功能服務；按 Display、WindowLayout、Audio、Bluetooth、Notch、AgentUsage、Recorder 等範圍查找 |
 | `Sources/Vorssaint/UI/` | SwiftUI／AppKit 視圖、設定頁、島與工具面板 |
 | `Sources/DisplayRecovery*`、`Sources/VirtualDisplay*` | 顯示恢復 helper、虛擬顯示器 host／bridge |
+| `Sources/AudioFeedbackBridge/` | AVFAudio Objective-C 例外邊界，避免音訊裝置切換拖垮 Swift App |
 | `Sources/FanControlHelper/`、`Sources/NowPlayingAdapter/` | 風扇與 Now Playing 原生輔助元件 |
 | `Resources/` | Info.plist、圖示、entitlements 與封裝資源 |
 | `Tests/` | 行為回歸、來源產生器、原生 fixture 與安裝／移除隔離檢查 |

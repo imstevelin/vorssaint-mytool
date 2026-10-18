@@ -8,6 +8,7 @@ let package = Package(
     name: "Vorssaint",
     platforms: [.macOS(.v14)],
     targets: [
+        .target(name: "AudioFeedbackBridge", path: "Sources/AudioFeedbackBridge", publicHeadersPath: "include"),
         .target(name: "VirtualDisplayBridge", path: "Sources/VirtualDisplayBridge",
                 cSettings: [.unsafeFlags(["-fno-objc-arc"])],
                 linkerSettings: [.linkedFramework("CoreGraphics"), .linkedFramework("Foundation")]),
@@ -26,7 +27,7 @@ let package = Package(
         ),
         .executableTarget(
             name: "Vorssaint",
-            dependencies: ["VMStatisticsCompat", "HIDEventSystem", "VirtualDisplayBridge", "DisplayRecoverySupport"],
+            dependencies: ["AudioFeedbackBridge", "VMStatisticsCompat", "HIDEventSystem", "VirtualDisplayBridge", "DisplayRecoverySupport"],
             path: "Sources/Vorssaint"
         )
     ]

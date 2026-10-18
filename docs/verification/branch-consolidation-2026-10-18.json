@@ -1,0 +1,62 @@
+[
+  {
+    "branch": "codex/sync-upstream-20261018",
+    "commit": "979780a0989e2abb24fb27310ae9ab51b9ddc012",
+    "commits_not_in_main": 0
+  },
+  {
+    "branch": "codex/upstream-window-memory-fix",
+    "commit": "a1f8bc1775aed6bb27f4e5be4fff83138685e0d4",
+    "commits_not_in_main": 0
+  },
+  {
+    "branch": "feature/display-window-memory",
+    "commit": "6519de1608bd29f0e2d3d7162aafa5c270ac6313",
+    "commits_not_in_main": 0
+  },
+  {
+    "branch": "release/vorssaint-imstevelin-1.0.0",
+    "commit": "d7190149c3d4a9f9423e8e754c1b01be4b800b7f",
+    "commits_not_in_main": 0
+  },
+  {
+    "branch": "release/vorssaint-imstevelin-1.0.1",
+    "commit": "4e4de6e8443a47419c8a5a5de7432a12f8ce9b4b",
+    "commits_not_in_main": 0
+  },
+  {
+    "branch": "release/vorssaint-imstevelin-1.0.2",
+    "commit": "9ec0c6f000345042e171c2b7778b09f31dec0cec",
+    "commits_not_in_main": 0
+  },
+  {
+    "branch": "origin/codex/sync-upstream-20261018",
+    "commit": "4685b8a8e893f4ff27710e27945b96d33cc56212",
+    "commits_not_in_main": 0
+  },
+  {
+    "branch": "origin/codex/upstream-window-memory-fix",
+    "commit": "a1f8bc1775aed6bb27f4e5be4fff83138685e0d4",
+    "commits_not_in_main": 0
+  },
+  {
+    "branch": "origin/feature/display-window-memory",
+    "commit": "6519de1608bd29f0e2d3d7162aafa5c270ac6313",
+    "commits_not_in_main": 0
+  },
+  {
+    "branch": "origin/release/vorssaint-imstevelin-1.0.0",
+    "commit": "d7190149c3d4a9f9423e8e754c1b01be4b800b7f",
+    "commits_not_in_main": 0
+  },
+  {
+    "branch": "origin/release/vorssaint-imstevelin-1.0.1",
+    "commit": "4e4de6e8443a47419c8a5a5de7432a12f8ce9b4b",
+    "commits_not_in_main": 0
+  },
+  {
+    "branch": "origin/release/vorssaint-imstevelin-1.0.2",
+    "commit": "9ec0c6f000345042e171c2b7778b09f31dec0cec",
+    "commits_not_in_main": 0
+  }
+]

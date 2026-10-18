@@ -12,6 +12,16 @@ enum HiDPIRefreshRateTests {
         var sessions: [UInt32: Session] = [:]
     }
     static func run(_ suite: TestSuite) {
+        suite.expect(Service.preferredRefreshRate(requested: 60, physical: 75, cached: nil) == 75,
+                     "a cold-start 60 Hz fallback never overrides the live 75 Hz physical mode")
+        suite.expect(Service.preferredRefreshRate(requested: 60, physical: 144, cached: 75) == 144,
+                     "a new monitor's live timing takes precedence over a stale cached timing")
+        suite.expect(Service.preferredRefreshRate(requested: 60, physical: 0, cached: 74.97) == 74.97,
+                     "an unknown physical readback preserves the last valid fractional timing")
+        suite.expect(!Service.refreshRateMatches(actual: 60, requested: 75),
+                     "verification rejects a physical mirror follower silently reduced to 60 Hz")
+        suite.expect(Service.refreshRateMatches(actual: 74.97, requested: 75),
+                     "normal fractional panel timing is accepted")
         var stable = 0
         for _ in 0..<3 { stable = Service.stableVerificationCount(valid: true, previous: stable) }
         suite.expect(stable == 3, "one transiently correct mode cannot complete a HiDPI transition")
