@@ -13,8 +13,7 @@ dist/
 *.mobileprovision
 *.keychain-db
 
-# Local-only working notes
-AGENTS.md
+# Shared agent guidance (AGENTS.md) is versioned; personal notes stay local.
 CLAUDE.md
 
 # macOS noise

@@ -7,6 +7,7 @@
 產物：`build/stage/實用小工具.app`。封裝：`./Tools/make-dmg.sh`。
 視窗尺寸記憶說明請見 [docs/DISPLAY_WINDOW_MEMORY.md](docs/DISPLAY_WINDOW_MEMORY.md)。
 上游研究與獨立更新節奏請見 [docs/UPSTREAM_MAINTENANCE.md](docs/UPSTREAM_MAINTENANCE.md)。
+Agent 入口：[AGENTS.md](AGENTS.md)（專案架構、功能開發、上游同步及交付規則）。
 維護規則：[CONTRIBUTING_FORK.md](CONTRIBUTING_FORK.md)；客製契約：[docs/FORK_CUSTOMIZATIONS.md](docs/FORK_CUSTOMIZATIONS.md)。
 檢查上游：`python3 Tools/check-upstream.py`（需已設定 `upstream` remote，僅抓取及比較）。
 
