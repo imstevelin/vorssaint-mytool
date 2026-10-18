@@ -47,7 +47,7 @@ enum DisplayReconnectTimingTests {
         suite.expect(DispatchQueue.main.jobs.count == 1,
                      "a topology notification burst keeps one fixed HiDPI resume instead of restarting its delay")
         suite.expect(DispatchQueue.main.delays.first.map { $0 > 0.45 && $0 <= 0.5 } == true,
-                     "reconnect starts HiDPI after half a second rather than three seconds")
+                     "reconnect starts sampling readiness after half a second")
         DispatchQueue.main.drain()
         suite.expect(resume.resumes == 1 && resume.resumeWork == nil,
                      "completed scheduling releases its slot for future reconnects")
