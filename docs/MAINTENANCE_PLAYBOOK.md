@@ -39,7 +39,7 @@ Developer 的 bundle ID 為 `com.imstevelin.vorssaint-imstevelin.dev`，與正�
 
 ## 更新正式 App 與發版
 
-只有準備驗收或發版時才操作正式 App；功能分支編譯成功不代表可以發版。使用乾淨且已通過 CI 的 main，提升 fork 版本／build，更新 `FORK_RELEASE.md`，依序建置、驗證及封裝：
+只有準備驗收或發版時才操作正式 App；功能分支編譯成功不代表可以發版。使用乾淨且已通過 CI 的 main，提升 fork 版本／build，同步更新 `Tests/SwitcherModelFeatureTests.swift` 的版本保護斷言並明確決定支援提示規則，更新 `FORK_RELEASE.md`，依序建置、驗證及封裝：
 
 ```sh
 ./build.sh

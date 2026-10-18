@@ -2067,10 +2067,14 @@ enum SwitcherModelFeatureTests {
         // decision above is made consciously, never by omission.
         let releasePlist = NSDictionary(contentsOfFile: "Resources/Info.plist")
         let plistVersion = (releasePlist?["CFBundleShortVersionString"] as? String) ?? ""
-        suite.expect(plistVersion == "1.0.9",
+        // Fork 1.1.0 deliberately keeps the official-only support invitation
+        // pinned upstream; a fork update must not trigger it.
+        suite.expect(!SupportUpdateIntroInfo.shouldShow(appVersion: "1.1.0", lastSeenVersion: nil),
+               "fork 1.1.0 never triggers the official stable support invitation")
+        suite.expect(plistVersion == "1.1.0",
                "bumping the app version requires re-deciding the support prompt pin above")
         let plistBuild = (releasePlist?["CFBundleVersion"] as? String) ?? ""
-        suite.expect(plistBuild == "10",
+        suite.expect(plistBuild == "11",
                "every app version needs its own incremented bundle build")
         suite.expect(SupportUpdateIntroInfo.releaseVersion == "3.4.1",
                "the support prompt is prepared for the 3.4.1 stable release")
