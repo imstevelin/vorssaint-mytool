@@ -214,13 +214,16 @@ See the [permissions guide](docs/PERMISSIONS.md) for which features need access 
 - A Mac with Apple Silicon
 - macOS 14 Sonoma or newer
 
+See [日常維護與開發流程](docs/MAINTENANCE_PLAYBOOK.md) for upstream checks, feature branches, Developer builds and releases.
+
 ### Build it yourself
 
 ```sh
 git clone https://github.com/imstevelin/vorssaint-mytool.git
 cd vorssaint-mytool
 ./build.sh --dev            # build the separate Developer variant
-./build.sh --dev --install  # install and launch it
+./build.sh --dev --install  # install the Developer variant
+open "/Applications/實用小工具 (Developer).app"
 ```
 
 Xcode Command Line Tools are the only requirement. The [contributing guide](CONTRIBUTING.md) covers the layout and conventions. Official builds come only from the maintainer: the GPL covers the source, while the Vorssaint name, icon and look are covered by [TRADEMARKS.md](TRADEMARKS.md), so forks need their own identity.

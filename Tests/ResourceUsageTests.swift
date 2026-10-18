@@ -44,11 +44,23 @@ enum ResourceUsageTests {
         let shared = WindowServerSnapshot.onScreen(read: read)
         suite.expect(reads == 1 && shared.first?["generation"] as? Int == 1,
                      "multiple island/window-memory callers share one WindowServer read in the same turn")
-        RunLoop.main.run(until: Date().addingTimeInterval(0.01))
+        drainMainQueue(suite)
         let fresh = WindowServerSnapshot.onScreen(read: read)
         suite.expect(reads == 2 && fresh.first?["generation"] as? Int == 2,
                      "the next main-queue turn obtains a fresh snapshot without a time-based stale window")
-        RunLoop.main.run(until: Date().addingTimeInterval(0.01))
+        drainMainQueue(suite)
+    }
+
+    // Wait for an actual main-queue boundary rather than assuming a busy CI
+    // runner can service the invalidation within a fixed 10 ms sleep.
+    private static func drainMainQueue(_ suite: TestSuite) {
+        var drained = false
+        DispatchQueue.main.async { drained = true }
+        let deadline = Date().addingTimeInterval(2)
+        while !drained && Date() < deadline {
+            RunLoop.main.run(until: Date().addingTimeInterval(0.01))
+        }
+        suite.expect(drained, "the main queue reaches the snapshot invalidation boundary")
     }
 
     private static func windowCache(_ suite: TestSuite) {
