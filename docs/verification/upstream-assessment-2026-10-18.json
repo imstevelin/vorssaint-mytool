@@ -1,0 +1,30 @@
+{
+  "fork_commit": "979780a0989e2abb24fb27310ae9ab51b9ddc012",
+  "upstream_commit": "b67dcf1ccd5090c7dc597cab091a9b1800cbf4e7",
+  "merge_base": "597f27a6a1afef1f9f8a464405cd03b2b226c548",
+  "recorded_upstream_commit": "597f27a6a1afef1f9f8a464405cd03b2b226c548",
+  "days_since_integration": 0,
+  "pending_commits": 3,
+  "upstream_changed_files": 3,
+  "overlapping_files": [
+    "Resources/Info.plist",
+    "Tests/SwitcherModelFeatureTests.swift"
+  ],
+  "conflict_files": [
+    "Resources/Info.plist",
+    "Tests/SwitcherModelFeatureTests.swift"
+  ],
+  "priority_reasons": [],
+  "pending_log": [
+    "b67dcf1c 2026-10-18 docs(changelog): reopen Unreleased after 3.4.2-beta.1",
+    "27a2d89b 2026-10-18 Release 3.4.2-beta.1",
+    "f8728311 2026-10-18 Prepare 3.4.2-beta.1"
+  ],
+  "dirty_worktree": false,
+  "release_check": "ok",
+  "latest_release": {
+    "tag_name": "v3.4.1",
+    "published_at": "2026-10-08T23:45:35Z",
+    "html_url": "https://github.com/vorssaint/vorssaint-utils/releases/tag/v3.4.1"
+  }
+}

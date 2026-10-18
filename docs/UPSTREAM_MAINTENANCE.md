@@ -116,12 +116,14 @@ python3 Tools/check-upstream.py
 
 GitHub → Actions → Upstream assessment 可手動執行並查看 summary／artifact。排程為每週一及四台北 09:00，由 GitHub 代跑，可能延遲；不需要本機保持開機。正常與有差異的結果均保留報告，不另行自動留言或開 issue。
 
-## 下一輪的具體順序
+## 第一輪完成後的操作
 
-1. 整理目前分支進 fork main，更新 README 的 fork 安裝入口，避免預設分支仍呈現舊版。
-2. 建立一次性的 `codex/sync-upstream-20261018`，固定同步目標 `5457c2d6`。先審核錄影、音量與 agents 的相依變動，再處理 island 行為取捨，最終保留完整上游 ancestry。
-3. 本次預演的 12 個衝突：`Defaults.swift`、`FeatureStrings.swift`、`NotchAgentStrings.swift`、`AgentUsageService.swift`、`AgentUsageStore.swift`、`NotchService.swift`、`NotchWindowHost.swift`、`MixerSection.swift`、`NotchControlsView.swift`、`NotchMascotView.swift`、`NotchMixerView.swift`、`WhatsNewView.swift`。預演不保證實際整合僅需修改這些檔案。
-4. 以 fork 現有體驗為產品驗收基準，將官方展開島新佈局與我們的小夥伴接點分開；必要時暫保留舊佈局，但仍吸收獨立 bug fix，並記錄保留差異。
-5. 補 fork CI、客製清單與同步紀錄；第一個整合版本實測後再決定發版。建議新增可觀察的維護指標：距離上次同步天數、未整合提交數、長期衝突數與未完成實機驗收。
+第一輪已將客製工作與 71 筆官方提交整理進 main，固定上游基準為 `597f27a6`；README 安裝入口、Fork CI、客製契約、同步記錄、回退演練與 GitHub 監測均已建立。完整證據見 [第一輪紀錄](upstream-sync/2026-10-18.md)。
 
-這次已達 64 筆待整合與 12 個文字衝突，下一次應優先完成同步，再擴充大型客製功能。
+1. 每週一／四查看 Actions 的 Upstream assessment；開始大型功能前執行 `python3 Tools/check-upstream.py`，先確認同步負債。
+2. 每週同步時建立新的 `codex/sync-upstream-YYYYMMDD`，固定新目標 SHA，按客製契約審核變更、處理衝突並保留上游 ancestry。
+3. 更新同步基準與記錄，通過相關回歸、完整 CI、建置和回退驗證後，以一般 merge 合回 main。
+4. 官方新增同等修正時，驗證後刪除對應 fork 差異；分別追蹤未整合提交數、同步天數、持續衝突與未完成人工驗收。
+5. 依客製清單完成實機驗收，再單獨決定 fork 發版；本輪候選 DMG 不直接覆蓋正式 1.0.9 發佈。
+
+下次檢查為 2026-10-19、常規同步目標為 2026-10-25；重大修正、50 筆提交或 14 天門檻會提前。截止後出現的新提交依下一輪報告審核，不延伸已驗證批次。

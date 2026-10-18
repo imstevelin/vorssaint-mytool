@@ -90,3 +90,9 @@ Maintenance tests: 5 PASS. Candidate DMG artifact uploaded.
 
 No production app replacement or release publication was performed.
 Physical display/Bluetooth/long-recording behavior and energy comparisons remain unverified.
+
+Final upstream assessment workflow: https://github.com/imstevelin/vorssaint-mytool/actions/runs/39096912917
+Conclusion: SUCCESS; summary and JSON/Markdown artifact uploaded.
+Report: dirty_worktree=false, stable v3.4.1, pending 3 beta preparation commits, 2 preview conflict files.
+App source remains identical to CI-tested 4685b8a8.
+Monday/Thursday 09:00 Asia/Taipei cron configured and active; first automatic cron run not yet observed.
