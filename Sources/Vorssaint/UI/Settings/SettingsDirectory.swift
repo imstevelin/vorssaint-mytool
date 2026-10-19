@@ -413,7 +413,6 @@ enum SettingsDirectory {
                                        featureKeywords: SettingsSearchSupport
                                         .screenCaptureFeatureKeywords(s, language: language)),
                 SettingsDirectoryItem(page: .urlCleaner, title: s.urlCleanerName, icon: "link"),
-                SettingsDirectoryItem(page: .inputSourceIndicator, title: InputSourceIndicatorStrings.text(language).title, icon: "character.cursor.ibeam", keywords: ["輸入法", "游標", "注音", "input source", "caret", "keyboard"]),
                 SettingsDirectoryItem(page: .keyDebounce, title: s.keyDebounceName, icon: "keyboard"),
                 SettingsDirectoryItem(page: .superKey,
                                       title: FeatureStrings.superKey(language).pageTitle,
