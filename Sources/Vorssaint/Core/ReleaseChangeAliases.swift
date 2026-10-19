@@ -82,7 +82,6 @@ enum ReleaseChangeAliases {
         case .middleClick: return ["middle click", "middle-click", "middle clicks"]
         case .mouseClickDebounce: return ["extra click filter", "extra-click filter", "click filter",
             "mouse debounce", "keyboard and mouse debounce", "worn-button click filtering", "extra clicks"]
-        case .inputSourceIndicator: return ["caret input source", "input source indicator", "游標輸入法提示"]
         case .keyboardDebounce: return ["keyboard debounce", "key debounce", "debounce",
             "keyboard and mouse debounce"]
         case .textSnippets: return ["text snippets", "snippets", "snippet"]
