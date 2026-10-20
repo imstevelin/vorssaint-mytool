@@ -33,3 +33,9 @@ swift Tools/DiagnoseDisplayInput.swift 120 > /tmp/vorssaint-display-input.jsonl
 - `./build.sh` Release 建置、`./build/VorssaintImstevelin --selftest` 與 `codesign --verify --deep --strict` 通過。
 - `./build.sh --dev --install` 通過，Developer App 已安裝至 `/Applications/實用小工具 (Developer).app`。正式 App 未替換，未啟動第二個控制同一螢幕的 App。
 - 尚未驗證：修正版實體 DDC 重接／睡醒／面板按鈕變更後的按鍵操作；Magic Trackpad 卡頓重現與根因；實際螢幕／瀏覽器幀率。
+
+## 使用者授權的正式位置測試安裝
+
+2026-10-21，使用者要求以本分支測試版取代現行正式版並啟動。已備份舊 App ZIP、匯出的正式偏好及自己的 Application Support（排除暫時 DisplayRecovery journal），以來源提交 `5eb39def` 的 Release 建置取代 `/Applications/實用小工具.app`，保留正式 bundle ID、1.1.1／build 12 與原有簽署身分；沒有發佈新版本。
+
+安裝後 strict deep 簽章通過，已安裝執行檔 SHA-256 與驗證過的 stage 完全相同，新程序與 VirtualDisplayHost 已啟動。啟動日誌實際讀到 `replied(current: 38, maximum: 100)`，DDC route 使用 0.38，而非預設 0.5。這證明本次啟動成功重讀面板值；亮度按鍵、真正重接／睡醒及 Magic Trackpad 卡頓仍由使用者驗收，不能視為已通過。
