@@ -579,6 +579,7 @@ if (( TEST )); then
         Sources/Vorssaint/Services/Uninstall/UninstallerSupport.swift
         Sources/Vorssaint/Services/ManagedDownloads/WhatsAppDownloadSupport.swift
         Sources/Vorssaint/Core/SecureInputSupport.swift
+        Sources/VirtualDisplayHost/VirtualDisplayCursorRefresh.swift
         Tests/*.swift
         build/generated-tests/*.swift
     )
@@ -622,7 +623,7 @@ swiftc -O -target "$TARGET" -sdk "$SDK" "${SDK_COMPAT_FLAGS[@]}" \
 
 swiftc -O -target "$TARGET" -sdk "$SDK" "${SDK_COMPAT_FLAGS[@]}" \
     -I Sources/VirtualDisplayBridge/include build/objects/VirtualDisplayBridge/VirtualDisplayBridge.o \
-    Sources/DisplayRecoverySupport/DisplayRecoverySnapshot.swift Sources/VirtualDisplayHost/main.swift \
+    Sources/DisplayRecoverySupport/DisplayRecoverySnapshot.swift Sources/VirtualDisplayHost/*.swift \
     -o build/objects/VirtualDisplayBridge/VirtualDisplayHost
 
 echo "▸ Compiling ($BUILD_CONFIGURATION) against $(basename "$SDK")…"
