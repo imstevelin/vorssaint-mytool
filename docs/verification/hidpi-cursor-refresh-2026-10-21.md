@@ -28,5 +28,6 @@
 
 - 最終 display-restoration：262 checks 通過；完整 `./build.sh --test`：113362 checks 通過，另有 AudioFeedbackBridge、偏好清理、移除 Spaces 與 Developer 安裝隔離檢查通過。
 - Release 建置、stage App selftest、strict deep codesign 通過，VirtualDisplayHost 為 arm64。
-- 本機候選安裝：執行後補記。
+- 16:20 已備份並安裝來源提交 `733052de` 的候選版至正式 App 位置，沿用既有設定及簽署身分；未發布新版本。安裝後 strict deep 簽章通過，helper SHA-256 與 stage 一致。
+- 真正執行中的 host 日誌確認 `observer available true`；WindowServer 視窗清單確認 1×1、alpha 約 0.01 的 panel 位於螢幕上。CoreGraphics 來源／鏡像仍回報 2560×1440、2x、75Hz，DDC 回讀 38/100。這些是啟動與配置證據，不是實體游標延遲消失的證據。
 - Trackpad 藍牙／USB 對照與修正後症狀：待使用者實測。
