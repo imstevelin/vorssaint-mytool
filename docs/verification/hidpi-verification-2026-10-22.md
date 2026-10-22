@@ -22,6 +22,8 @@
 - display-restoration：269 checks 通過；AudioFeedbackBridge 原生 fixture：14 checks 通過。
 - 新增回歸涵蓋 ICC 晚到不重套模式、鏡像斷開不重套、實體更新率與 ICC 各自保留失敗，以及所有原驗證條件皆需通過。
 - 完整 `./build.sh --test`：113369 checks 通過；AudioFeedbackBridge、偏好清理、移除與 Developer 安裝隔離通過。
-- 最終 Developer 建置／安裝、selftest 與 strict deep codesign 通過。23:27 啟動兩端為 2560×1440、2×、75Hz，所有分項通過；ICC 與原生快照一致。
-- 正式建置／selftest／簽章、Fork CI：執行中，完成後補記。
+- 最終 Developer 建置／安裝、selftest 與 strict deep codesign 通過。23:27 啟動兩端為 2560×1440、2×、75Hz，所有分項通過；ICC、有效色彩空間、729 組 RGB 轉換與 gamma 表均與原生快照一致。設定頁確認 HiDPI 啟用、亮度 43%、對比 80%、音量 64%、未靜音與回饋音啟用。
+- 正式 `./build.sh`、`./build/VorssaintImstevelin --selftest` 與 stage App strict deep codesign 通過。來源修正提交 `42343ca1`，stage 主執行檔 SHA-256：`461f13582c62a53fc6bcd85e759cde2cbe62d52d2d39208b767960a8677f16d3`。
+- [草稿 PR #7](https://github.com/imstevelin/vorssaint-mytool/pull/7) 已更新；先前游標延遲候選補救仍待驗收，維持草稿，不合入 main。
+- Fork CI 執行中。正式 App 尚未替換，等待本輪明確安裝授權。
 - 最終修正版的實體重接、睡醒與長時間使用：尚未驗證。
