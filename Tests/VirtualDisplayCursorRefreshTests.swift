@@ -42,10 +42,51 @@ enum VirtualDisplayCursorRefreshTests {
         refresh.setSuspended(false)
         refresh.pointerActivity(at: point, now: 13)
         suite.expect(panel.isVisible && refresh.redrawCount == 4, "wake restores the source's refresh panel")
+        panel.orderOut(nil)
+        refresh.pointerActivity(at: point, now: 13.1)
+        suite.expect(panel.isVisible && refresh.redrawCount == 5 && refresh.repairCount == 1,
+                     "a hidden refresh surface recovers on input instead of silently disabling all future damage")
         refresh.stop()
         refresh.pointerActivity(at: point, now: 14)
-        suite.expect(refresh.panel == nil && !panel.isVisible && refresh.redrawCount == 4,
+        refresh.heartbeat(now: 14.2)
+        suite.expect(refresh.panel == nil && !panel.isVisible && refresh.redrawCount == 5,
                      "host teardown removes observation and the panel without leaving any rendering work")
+
+        // Drop native event delivery entirely. Movement still reaches the
+        // independent host heartbeat, starts a bounded pump, then goes idle.
+        var sampledPoint = point
+        let fallback = VirtualDisplayCursorRefresh(displayID: id, rate: 75, pointerLocation: { sampledPoint })
+        fallback.start()
+        fallback.heartbeat(now: 20)
+        suite.expect(fallback.redrawCount == 0 && !fallback.activityPolling,
+                     "an idle host heartbeat does not animate or start high-rate pointer sampling")
+        sampledPoint.x += 5
+        fallback.heartbeat(now: 20.2)
+        suite.expect(fallback.redrawCount == 1 && fallback.fallbackCount == 1 && fallback.activityPolling,
+                     "movement with no native events still damages the source and starts recovery sampling")
+        sampledPoint.x += 5
+        fallback.heartbeat(now: 20.21)
+        suite.expect(fallback.redrawCount == 2, "silent-observer recovery follows further pointer movement")
+        fallback.heartbeat(now: 20.5)
+        suite.expect(!fallback.activityPolling && fallback.redrawCount == 2,
+                     "recovery sampling stops after idle without producing idle window damage")
+        fallback.panel?.orderOut(nil)
+        fallback.heartbeat(now: 20.7)
+        suite.expect(fallback.panel?.isVisible == true && fallback.repairCount == 1,
+                     "the host heartbeat repairs an ordered-out panel without recreating the HiDPI display")
+        fallback.setSuspended(true)
+        sampledPoint.x += 5
+        fallback.heartbeat(now: 21)
+        suite.expect(!fallback.activityPolling && fallback.redrawCount == 2,
+                     "sleep never starts recovery rendering or polling")
+        fallback.setSuspended(false)
+        fallback.heartbeat(now: 22)
+        suite.expect(fallback.redrawCount == 2, "wake resets the movement baseline instead of inventing input")
+        sampledPoint = NSPoint(x: screen.frame.maxX + 10, y: screen.frame.maxY + 10)
+        fallback.heartbeat(now: 22.2)
+        suite.expect(!fallback.activityPolling && fallback.redrawCount == 2,
+                     "movement outside the owned display cannot trigger fallback rendering")
+        fallback.stop()
         let disconnected = VirtualDisplayCursorRefresh(displayID: .max, rate: 75)
         disconnected.start()
         disconnected.pointerActivity(at: point, now: 1)

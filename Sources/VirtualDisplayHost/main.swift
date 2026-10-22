@@ -26,11 +26,15 @@ var profileApplied = false
 var profileAttempts = 0
 var published = false
 let cursorRefresh = VirtualDisplayCursorRefresh(displayID: id, rate: request.rate)
+let cursorStatusURL = url.appendingPathExtension("cursor-status")
+var lastStatusTime = -TimeInterval.infinity
+var lastCursorStatus: VirtualDisplayCursorRefresh.Status?
 func finish(_ status: Int32) -> Never {
     cursorRefresh.stop()
     DisplayColorProfile.resetOwnedVirtualDisplay(id)
     VSDDestroyVirtualDisplay(id)
     try? FileManager.default.removeItem(at: profileURL)
+    try? FileManager.default.removeItem(at: cursorStatusURL)
     exit(status)
 }
 // Process.terminate uses SIGTERM. Handle cleanup on the run loop, never inside
@@ -39,7 +43,7 @@ signal(SIGTERM, SIG_IGN)
 let termination = DispatchSource.makeSignalSource(signal: SIGTERM, queue: .main)
 termination.setEventHandler { finish(0) }
 termination.resume()
-let timer = Timer.scheduledTimer(withTimeInterval: 0.2, repeats: true) { _ in
+let timer = Timer(timeInterval: 0.2, repeats: true) { _ in
     if !published {
         profileAttempts += 1
         if !profileApplied { profileApplied = DisplayColorProfile.apply(profile, to: id, url: profileURL) }
@@ -52,6 +56,20 @@ let timer = Timer.scheduledTimer(withTimeInterval: 0.2, repeats: true) { _ in
     if getppid() != request.parentPID || kill(request.parentPID, 0) != 0 {
         finish(0)
     }
+    if published {
+        let now = ProcessInfo.processInfo.systemUptime
+        cursorRefresh.heartbeat(now: now)
+        if now - lastStatusTime >= 5 {
+            // Bounded, local counters only: no key contents or pointer positions.
+            let status = cursorRefresh.status
+            if status != lastCursorStatus {
+                try? JSONEncoder().encode(status).write(to: cursorStatusURL, options: .atomic)
+                lastCursorStatus = status
+            }
+            lastStatusTime = now
+        }
+    }
 }
+RunLoop.main.add(timer, forMode: .common)
 app.run()
 finish(0)
