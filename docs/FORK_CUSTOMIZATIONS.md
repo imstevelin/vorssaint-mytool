@@ -37,3 +37,7 @@
 模式標籤、CoreGraphics 刷新率與瀏覽器實際動畫幀率分開記錄。2026-10-18 在 PA328QV 實測，動態虛擬螢幕已為 75Hz，但 Dia 的 GPU 記錄出現 missing NSScreen，TestUFO 仍為 60fps；重新建立 Dia GPU 程序並重新載入後恢復 75fps。只開新視窗未恢復。使用者可先保留 HiDPI 設定，再以 ⌘Q 完全退出 Dia 後開啟測試；再切換 HiDPI 可能重現。App 不得自行終止瀏覽器來掩蓋問題。完整證據與限制見 [本輪驗證](verification/display-refresh-audio-2026-10-18.md)。
 
 後續重接修正改為確認實體模式、AppKit 與 ICC 連續穩定，並等待舊 host 完成 ColorSync 清理。使用者在 Developer 版實際拔插後回報色彩不再閃爍，但 Dia 仍為 60fps，並決定暫不追修瀏覽器相容性問題；詳見 [重接驗收](verification/hidpi-reconnect-2026-10-18.md)。保留這個限制，不以自動重啟瀏覽器處理。
+
+## 視窗記憶的最新手動選擇
+
+視窗開啟尺寸以同一顯示器上最新學到的 App／標題記錄為準；舊資料夾或文件的最大化記錄不得凌駕後來的手動尺寸。幾何記錄的可選 `learnedAt` 隨 SQLite 冷記錄保存，舊資料仍可讀取，時間相同或缺少時保留標題優先。滑鼠拖拉期間只讀 WindowServer 幾何；實際移動／縮放會取消該視窗尚未執行的開啟及重接還原。自動還原成功不再重新發布成新的使用者選擇，後續手動變化仍等待穩定後學習。暫時貼齊及真正全螢幕的排除規則不變。驗證與限制見 [2026-10-23 視窗記憶修正](verification/window-memory-manual-priority-2026-10-23.md)。

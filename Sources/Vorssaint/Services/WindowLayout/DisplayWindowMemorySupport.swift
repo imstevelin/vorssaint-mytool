@@ -21,6 +21,7 @@ struct RememberedDisplay: Codable, Equatable {
 struct RememberedWindowGeometry: Codable, Equatable {
     let relativeFrame: CGRect
     let maximized: Bool
+    var learnedAt: Date? = nil
 }
 
 struct DisplayWindowMemory: Codable {
@@ -40,6 +41,35 @@ enum DisplayWindowMemorySupport {
         let pid: pid_t
         let bundleID: String
         let frame: CGRect
+    }
+
+    /// Observe geometry only, without AX traffic during a drag. A newly opened
+    /// window is claimed only if it actually moves/resizes, not merely appears.
+    struct Interaction {
+        var baseline: [CGWindowID: SnapshotIdentity] = [:]
+        var claimed: [CGWindowID: SnapshotIdentity] = [:]
+        var tracking = false
+
+        mutating func update(current: [CGWindowID: SnapshotIdentity],
+                             previous: [CGWindowID: SnapshotIdentity], pressed: Bool) {
+            if pressed && !tracking {
+                baseline = previous
+                tracking = true
+            }
+            if tracking {
+                for (id, value) in current {
+                    if let old = baseline[id], old.pid == value.pid, old.bundleID == value.bundleID,
+                       !DisplayWindowMemorySupport.close(old.frame, value.frame) {
+                        claimed[id] = value
+                    }
+                    if baseline[id] == nil { baseline[id] = value }
+                }
+            }
+            claimed = claimed.filter { id, value in
+                current[id]?.pid == value.pid && current[id]?.bundleID == value.bundleID
+            }
+            if !pressed { baseline.removeAll(); tracking = false }
+        }
     }
 
     /// A busy/changing window must not starve unrelated applications. Titles
@@ -119,7 +149,7 @@ enum DisplayWindowMemorySupport {
         guard fillsWorkArea || !arrangedSize(frame.size, within: usableBounds) else { return }
         let geometry = RememberedWindowGeometry(
             relativeFrame: frame.offsetBy(dx: -displayBounds.minX, dy: -displayBounds.minY),
-            maximized: maximized)
+            maximized: maximized, learnedAt: Date())
         stored.openingFrames = stored.openingFrames ?? [:]
         for key in Set([profileKey(bundleID: bundleID, titleDigest: titleDigest),
                         profileKey(bundleID: bundleID, titleDigest: nil)]) {
@@ -133,7 +163,14 @@ enum DisplayWindowMemorySupport {
                              displayBounds: CGRect, usableBounds: CGRect) -> CGRect? {
         let keys = [profileKey(bundleID: bundleID, titleDigest: titleDigest),
                     profileKey(bundleID: bundleID, titleDigest: nil)]
-        for key in keys {
+        // A later app-wide choice supersedes an older document/folder profile,
+        // including cold profiles loaded after restart. Legacy ties retain the
+        // document-specific preference until a new geometry is learned.
+        let orderedKeys = keys.sorted {
+            (stored?.openingFrames?[$0]?.learnedAt ?? .distantPast)
+                > (stored?.openingFrames?[$1]?.learnedAt ?? .distantPast)
+        }
+        for key in orderedKeys {
             if let geometry = stored?.openingFrames?[key] {
                 if geometry.maximized { return usableBounds }
                 return fittedFrame(geometry.relativeFrame.offsetBy(
