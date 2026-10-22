@@ -25,5 +25,16 @@
 - 最終 Developer 建置／安裝、selftest 與 strict deep codesign 通過。23:27 啟動兩端為 2560×1440、2×、75Hz，所有分項通過；ICC、有效色彩空間、729 組 RGB 轉換與 gamma 表均與原生快照一致。設定頁確認 HiDPI 啟用、亮度 43%、對比 80%、音量 64%、未靜音與回饋音啟用。
 - 正式 `./build.sh`、`./build/VorssaintImstevelin --selftest` 與 stage App strict deep codesign 通過。來源修正提交 `42343ca1`，stage 主執行檔 SHA-256：`461f13582c62a53fc6bcd85e759cde2cbe62d52d2d39208b767960a8677f16d3`。
 - [草稿 PR #7](https://github.com/imstevelin/vorssaint-mytool/pull/7) 已更新；先前游標延遲候選補救仍待驗收，維持草稿，不合入 main。
-- Fork CI 執行中。正式 App 尚未替換，等待本輪明確安裝授權。
-- 最終修正版的實體重接、睡醒與長時間使用：尚未驗證。
+- 使用者對最終修正版完成一次實體拔插，回報「修正版重接正常」。此為 PA328QV 本次單次驗收，不推廣為所有重接或所有螢幕皆已驗證；睡醒與長時間使用仍待驗證。
+- Fork CI 執行中；後續僅文件補記的提交會重新觸發工作流程，不把取消中的舊 run 視為失敗或最新程式已通過。
+
+## 已授權本機安裝
+
+使用者明確選擇「備份後安裝正式位置」，未授權發布新版。
+
+- 23:35 已備份舊正式 App 與兩版當前偏好至 `~/Library/Application Support/實用小工具/Backups/20261022-233506-before-hidpi-verification-42343ca1/`。Developer 驗收偏好保留於該備份，退出後還原本次診斷前的 Developer 偏好。
+- 替換 `/Applications/實用小工具.app` 並以確切路徑啟動；正式 bundle ID、1.1.1 build12 與既有偏好保留。Developer 已退出，沒有兩版同時控制顯示器。未建立 tag 或 GitHub Release。
+- 安裝後 strict deep codesign 與安裝執行檔 selftest 通過，主執行檔 SHA-256 與 stage 一致：`461f13582c62a53fc6bcd85e759cde2cbe62d52d2d39208b767960a8677f16d3`。
+- 23:35:57 正式程序驗證全部分項通過；實體鏡像與虛擬來源皆為 2560×1440、5120×2880 像素、75Hz。ICC、有效色彩空間、729 組 RGB 轉換及 gamma 表皆與原生基準相同。
+- 正式版設定頁確認 HiDPI 開啟，亮度 43%、對比 80%、音量 64%、未靜音與回饋音啟用。這是安裝後啟動驗證；單次實體重接驗收發生在相同程式的 Developer 版，未代填正式版另一次拔插或睡醒。
+
