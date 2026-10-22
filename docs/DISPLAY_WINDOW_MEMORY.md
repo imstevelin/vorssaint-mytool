@@ -11,9 +11,11 @@ The Window layout settings contain two independent options, both off by default:
   applications, documents and browser tabs are not reopened.
 
 Size memory scans every 0.5 seconds. A new window or display transition receives
-one restore attempt, after mouse interaction has ended. Subsequent manual moves
-and resizes are observed, never retried against an old target. Accepted geometry
-is learned after 1.5 seconds of stability. Applications that reject a size are
+one restore attempt, after mouse interaction has ended. If geometry observation
+finds the user moved or resized that window during the interaction, its pending
+restore is consumed instead. Subsequent manual moves and resizes are observed,
+never retried against an old target. User/app geometry is learned after 1.5
+seconds of stability; a successful automatic restore does not renew its profile. Applications that reject a size are
 not repeatedly forced back to it. Overlapping windows are resolved by their
 WindowServer ID, not their position.
 
@@ -101,3 +103,18 @@ Temporary tiles still do not replace opening profiles. Older size-only preferenc
 remain readable and usable, but cannot shrink an already maximized opening window.
 Resize or position the window and let it settle for 1.5 seconds once to teach the
 new complete profile. Smaller work areas clamp frames only as needed.
+
+## Manual choices supersede old maximum profiles (2026-10-23)
+
+Opening geometry carries an optional learning date. When both a title-specific
+and an app-wide profile exist, the newer choice wins; equal or missing dates keep
+the legacy title preference. This also applies to profiles fetched from SQLite
+cold storage, without deleting historical documents or reconnect arrangements.
+A later ordinary Finder size therefore supersedes an older folder maximum.
+
+During mouse interaction, WindowServer geometry is observed without AX queries.
+Actual movement or resizing consumes the pending opening and reconnect restore
+for that window. Merely clicking to create a window retains its restore chance.
+The observation uses existing scan/event scheduling; an interaction entirely
+between observations may be missed. See [validation and remaining physical
+checks](verification/window-memory-manual-priority-2026-10-23.md).
