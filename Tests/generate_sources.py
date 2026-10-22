@@ -296,6 +296,7 @@ def main():
           + declaration(hidpi, "    struct Profile:")
           + declaration(hidpi, "    struct ReconnectSignature:")
           + declaration(hidpi, "    struct ReconnectGate {")
+          + declaration(hidpi, "    struct VerificationState {")
           + "final class Service: Fixture {\n"
           + "".join(declaration(hidpi, prefix) for prefix in [
               "    static func recordPhysicalSize(", "    func presets(", "    func defaultProfile(",

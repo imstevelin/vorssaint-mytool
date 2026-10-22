@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import AppKit
+import os
 import VirtualDisplayBridge
 #if canImport(DisplayRecoverySupport)
 import DisplayRecoverySupport
@@ -7,6 +8,7 @@ import DisplayRecoverySupport
 
 /// Owns only this app's virtual displays. Physical IDs remain the DDC address.
 final class VirtualHiDPIService: ObservableObject {
+    private static let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "vorssaint", category: "hidpi")
     static let shared = VirtualHiDPIService()
     private static let ownershipLock = NSLock()
     private static var physicalByVirtual: [CGDirectDisplayID: CGDirectDisplayID] = [:]
@@ -299,20 +301,47 @@ final class VirtualHiDPIService: ObservableObject {
         valid ? min(4, previous + 1) : 0
     }
 
+    struct VerificationState {
+        let modeMatches: Bool
+        let physicalRateMatches: Bool
+        let mirrorMatches: Bool
+        let virtualColorMatches: Bool
+        let physicalColorMatches: Bool
+        var valid: Bool {
+            modeMatches && physicalRateMatches && mirrorMatches && virtualColorMatches && physicalColorMatches
+        }
+        var shouldReapplyMode: Bool { !modeMatches && mirrorMatches }
+        var failures: [String] {
+            [(modeMatches, "mode"), (physicalRateMatches, "physical-rate"),
+             (mirrorMatches, "mirror"), (virtualColorMatches, "source-ICC"),
+             (physicalColorMatches, "physical-ICC")].compactMap { $0.0 ? nil : $0.1 }
+        }
+    }
+
     private func awaitVerification(_ id: CGDirectDisplayID, token: Int, attempts: Int) {
         guard token == generation, let session = sessions[id] else { return }
+        // Mirror configuration invalidates per-process mode caches. Refresh the
+        // active list on every observation, as in attachVirtual/capture, before
+        // reading modes; waiting alone can repeatedly validate a stale mode.
+        _ = DisplayRecoverySnapshot.onlineIDs()
         let desktop = session.virtualID ?? id
         // Public mode queries may return nil for a virtual mirror master;
         // the physical follower exposes the mirror group's actual mode.
         let mode = CGDisplayCopyDisplayMode(desktop) ?? CGDisplayCopyDisplayMode(id)
-        let colorMatches = expectedColorProfiles[id].map {
-            DisplayColorProfile.matches($0, display: desktop) && DisplayColorProfile.matches($0, display: id)
-        } == true
-        let physicalRateMatches = CGDisplayCopyDisplayMode(id).map {
-            Self.refreshRateMatches(actual: $0.refreshRate, requested: session.profile.rate)
-        } == true
-        let valid = mode.map { Self.matches($0, profile: session.profile) } == true && physicalRateMatches
-            && (session.virtualID == nil || CGDisplayMirrorsDisplay(id) == desktop) && colorMatches
+        let physicalMode = CGDisplayCopyDisplayMode(id)
+        let expectedColor = expectedColorProfiles[id]
+        let state = VerificationState(
+            modeMatches: mode.map { Self.matches($0, profile: session.profile) } == true,
+            physicalRateMatches: physicalMode.map {
+                Self.refreshRateMatches(actual: $0.refreshRate, requested: session.profile.rate)
+            } == true,
+            mirrorMatches: session.virtualID == nil || CGDisplayMirrorsDisplay(id) == desktop,
+            virtualColorMatches: expectedColor.map { DisplayColorProfile.matches($0, display: desktop) } == true,
+            physicalColorMatches: expectedColor.map { DisplayColorProfile.matches($0, display: id) } == true)
+        if attempts == 0 || attempts == 2 || attempts == 30 {
+            Self.log.notice("verify attempt \(attempts) physical \(id) desktop \(desktop) mode \(mode?.width ?? 0)x\(mode?.height ?? 0) pixels \(mode?.pixelWidth ?? 0)x\(mode?.pixelHeight ?? 0) rate \(mode?.refreshRate ?? -1) physicalRate \(physicalMode?.refreshRate ?? -1) requested \(session.profile.rate) mirror \(CGDisplayMirrorsDisplay(id)) failures \(state.failures.joined(separator: ","), privacy: .public)")
+        }
+        let valid = state.valid
         verificationPasses[id] = Self.stableVerificationCount(valid: valid, previous: verificationPasses[id] ?? 0)
         if verificationPasses[id, default: 0] >= 4 {
             switching = nil
@@ -329,7 +358,9 @@ final class VirtualHiDPIService: ObservableObject {
             if automaticConfirmation { confirm() }
             return
         }
-        if !valid, attempts == 2, session.virtualID != nil {
+        // ICC registration can lag behind mirroring. Reapplying an already
+        // correct mode needlessly starts another display/color transition.
+        if state.shouldReapplyMode, attempts == 2, session.virtualID != nil {
             let options = [kCGDisplayShowDuplicateLowResolutionModes: true] as CFDictionary
             let modes = CGDisplayCopyAllDisplayModes(desktop, options) as? [CGDisplayMode] ?? []
             if let mode = modes.first(where: { Self.matches($0, profile: session.profile) }) {
@@ -337,8 +368,18 @@ final class VirtualHiDPIService: ObservableObject {
             }
         }
         guard attempts < 30 else {
+            let labels = [
+                "mode": DisplayControlText.text("解析度／縮放", "resolution/scale"),
+                "physical-rate": DisplayControlText.text("實體更新率", "physical refresh rate"),
+                "mirror": DisplayControlText.text("鏡像連接", "mirror connection"),
+                "source-ICC": DisplayControlText.text("虛擬螢幕色彩描述檔", "virtual display color profile"),
+                "physical-ICC": DisplayControlText.text("實體螢幕色彩描述檔", "physical display color profile")]
+            let reasons = state.failures.compactMap { labels[$0] }
+            let detail = reasons.isEmpty ? DisplayControlText.text("連續穩定驗證", "consecutive stability checks")
+                : reasons.joined(separator: "、")
             abortCreation(id, original: session.original, virtual: session.virtualID,
-                          message: DisplayControlText.text("HiDPI 模式或色彩描述檔未穩定，已恢復原設定", "HiDPI mode or color profile did not stabilize; restored original settings")); return
+                          message: DisplayControlText.text("HiDPI 驗證未通過，已恢復原設定", "HiDPI verification failed; restored original settings")
+                            + " (" + detail + ")"); return
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
             self?.awaitVerification(id, token: token, attempts: attempts + 1)

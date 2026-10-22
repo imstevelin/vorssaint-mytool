@@ -42,6 +42,30 @@ enum HiDPIRefreshRateTests {
         suite.expect(stable == 0, "mode, mirror or ICC instability resets the consecutive verification count")
         for _ in 0..<4 { stable = Service.stableVerificationCount(valid: true, previous: stable) }
         suite.expect(stable == 4, "four consecutive valid mode and color checks complete stabilization")
+        let colorPending = VerificationState(modeMatches: true, physicalRateMatches: true,
+            mirrorMatches: true, virtualColorMatches: false, physicalColorMatches: true)
+        suite.expect(!colorPending.valid && !colorPending.shouldReapplyMode,
+                     "late source ICC must wait without reapplying the correct mode")
+        suite.expect(colorPending.failures == ["source-ICC"], "diagnostics isolate source color mismatch")
+        let wrongMode = VerificationState(modeMatches: false, physicalRateMatches: true,
+            mirrorMatches: true, virtualColorMatches: true, physicalColorMatches: true)
+        suite.expect(!wrongMode.valid && wrongMode.shouldReapplyMode,
+                     "a mismatched mode on an attached mirror remains eligible for one repair")
+        let wrongMirror = VerificationState(modeMatches: false, physicalRateMatches: true,
+            mirrorMatches: false, virtualColorMatches: true, physicalColorMatches: true)
+        suite.expect(!wrongMirror.shouldReapplyMode, "do not change a source mode when the mirror is detached")
+        let wrongRate = VerificationState(modeMatches: true, physicalRateMatches: false,
+            mirrorMatches: true, virtualColorMatches: true, physicalColorMatches: true)
+        suite.expect(!wrongRate.valid && !wrongRate.shouldReapplyMode && wrongRate.failures == ["physical-rate"],
+                     "physical refresh mismatch stays a failure without resetting a correct source mode")
+        let wrongPanelColor = VerificationState(modeMatches: true, physicalRateMatches: true,
+            mirrorMatches: true, virtualColorMatches: true, physicalColorMatches: false)
+        suite.expect(!wrongPanelColor.valid && wrongPanelColor.failures == ["physical-ICC"],
+                     "a correct source profile cannot hide a physical ICC mismatch")
+        let verified = VerificationState(modeMatches: true, physicalRateMatches: true,
+            mirrorMatches: true, virtualColorMatches: true, physicalColorMatches: true)
+        suite.expect(verified.valid && verified.failures.isEmpty && !verified.shouldReapplyMode,
+                     "all original verification requirements must pass")
         let service = Service()
         for rate in [60.0, 75, 120, 144, 59.94, 74.97, 165] {
             Service.recordPhysicalSize(2, width: 2560, height: 1440, rate: rate)
