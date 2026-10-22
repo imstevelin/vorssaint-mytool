@@ -28,4 +28,13 @@
 - Developer `./build.sh --dev --install` 與 Release `./build.sh` 建置成功；兩版 selftest、strict deep codesign、plist lint 通過，host 為 arm64。Developer 已安裝但未啟動，避免與目前正式程序同時控制顯示器。
 - 程式提交 `43ff78a2` 的 Release stage 主程式 SHA-256：`94970d67114951ce02559bc3d4bf5f9e3b0c2d267fbd380a1691640e16a7beb5`；VirtualDisplayHost：`07d239e38a8600fc92e5755b31a2134443274cf79125115f86cec965ef1f22cf`。
 - 此提交的 [Fork CI](https://github.com/imstevelin/vorssaint-mytool/actions/runs/39815174274) 已明確派送，目前排隊，未以舊提交的綠燈代替。正式 App 尚未替換；依 AGENTS.md 等候使用者選擇安裝方式。未發布 tag 或 Release。
-- 修正版的實體游標、全螢幕／Space、睡醒及長時間無復發驗收待完成。不得以測試或正常狀態下的診斷計數代填。
+- 修正版的全螢幕／Space、睡醒及長時間無復發驗收待完成。不得以測試或正常狀態下的診斷計數代填。
+
+## 授權安裝與即時驗收
+
+使用者明確選擇「備份後替換正式 App，保留目前設定」。台北時間 2026-10-23 00:38 已將舊正式 App 與退出前／後偏好備份於 App 自有 Backups／`20261023-003818-before-cursor-recovery-43ff78a2`，正常退出舊主程式與顯示 helpers 後替換正式位置。Developer 未啟動，沒有兩版同時控制顯示器。
+
+- 安裝後主程式與 host SHA-256 皆與上述 Release stage 一致；已安裝程式 selftest、strict deep codesign 通過。保留正式 bundle ID、1.1.1 build12，未發布 tag 或 Release。
+- HiDPI 設定內容與退出後備份一致，其他偏好僅 `systemShortcutsSuppressed` 隨 App 啟動進入執行狀態而變化；未匯入或重設使用者偏好。
+- 新主程式與 host 日誌確認來源／實體鏡像為 2560×1440、5120×2880 像素、75Hz，解析度、實體更新率、鏡像與兩端 ICC 驗證全部通過。重繪 panel 可見且未暫停，診斷檔可讀。
+- 使用者在本次安裝後回覆「目前流暢」。這是即時游標操作驗收，不能取代間歇性問題的長時間無復發、全螢幕／Space 與睡醒驗收。
