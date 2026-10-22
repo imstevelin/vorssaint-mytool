@@ -25,5 +25,7 @@
 - `./build.sh --test-suite=display-restoration`：278 checks 通過。
 - 新增隱藏 panel 恢復、刻意不送 NSEvent 的移動偵測、閒置無重繪、睡眠／喚醒、離開來源螢幕與 stop 後不復活的回歸測試。
 - 完整 `./build.sh --test`：113378 checks 通過，另有 AudioFeedbackBridge、偏好清理、移除 Spaces 與 Developer 安裝隔離檢查通過。
-- 建置、selftest、簽章與 CI 結果在完成後補記。
+- Developer `./build.sh --dev --install` 與 Release `./build.sh` 建置成功；兩版 selftest、strict deep codesign、plist lint 通過，host 為 arm64。Developer 已安裝但未啟動，避免與目前正式程序同時控制顯示器。
+- 程式提交 `43ff78a2` 的 Release stage 主程式 SHA-256：`94970d67114951ce02559bc3d4bf5f9e3b0c2d267fbd380a1691640e16a7beb5`；VirtualDisplayHost：`07d239e38a8600fc92e5755b31a2134443274cf79125115f86cec965ef1f22cf`。
+- 此提交的 [Fork CI](https://github.com/imstevelin/vorssaint-mytool/actions/runs/39815174274) 已明確派送，目前排隊，未以舊提交的綠燈代替。正式 App 尚未替換；依 AGENTS.md 等候使用者選擇安裝方式。未發布 tag 或 Release。
 - 修正版的實體游標、全螢幕／Space、睡醒及長時間無復發驗收待完成。不得以測試或正常狀態下的診斷計數代填。
