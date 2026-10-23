@@ -61,3 +61,11 @@
 - 已備份後替換 `/Applications/實用小工具.app` 並啟動。備份為 `20261024-043902-before-native-record-correction`；替換前後偏好完全一致，安裝包 selftest 與 strict deep codesign 通過。
 - 安裝主程式 SHA-256 `f56d44c9ef18e47c69a948f48082cf2b47b8f8ff7c7c79304946d701417b918f`，NativeHiDPIHelper `f252632e8686e3b2cd71320b4f3dacf882568e7d98873e94ef8f129de8b21e51`，均與測試後 stage 相同。沿用候選版本 1.1.1 (12)，未建立 Release。
 - 系統修正的管理員授權與原生模式啟用尚待驗證；App 已安裝不代表系統覆寫已更新。實機卡頓改善仍待原生 HiDPI 成功啟用後長時間驗收。
+
+
+### 修正版系統授權已完成
+
+- 管理員授權成功，root helper exit 0。覆寫已更新為三筆 `0000140000000b400000000900200000`、`0000140000000b40`、`00000a00000005a0`；SHA-256 `74b0a4f8fdb544872099fba353fd83b4c178921bc03e451821d16071eeee9e38`，root／0644，與 receipt installed bytes 完全一致。
+- 系統 `DisplayResolutionEnabled` 已讀回 true。型號 receipt 與共用開關 receipt 均保存原先不存在的狀態，可經還原功能回復。
+- 套用後再次枚舉：仍只有實體螢幕、無鏡像，當前 2560×1440、1×、75Hz；尚未提供所需的 2560×1440、2×、75Hz。下一個實機步驟是儲存工作後重新啟動 macOS，驗證重新載入設定後的模式；沒有自動重啟或結束 WindowServer。
+- 程式提交 `723aa032` 的 Fork CI（40020938965）仍在執行；系統設定寫入成功不代表模式已被接受或卡頓已修復。
