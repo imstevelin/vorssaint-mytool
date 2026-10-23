@@ -7,12 +7,14 @@ struct DisplayHardwareControls: View {
     var compact = false
     @ObservedObject private var hardware = BrightnessService.shared
     @ObservedObject private var hidpi = VirtualHiDPIService.shared
+    @ObservedObject private var nativeHiDPI = NativeHiDPIService.shared
     @ObservedObject private var audio = AppVolumeMixer.shared
     @ObservedObject private var l10n = L10n.shared
     @State private var width = "1920"
     @State private var height = "1080"
     @State private var selectedRate: Double?
     @State private var details = false
+    @State private var nativeOnly = true
 
     private var state: DisplayHardwareState? { hardware.hardwareControls[display.id] }
 
@@ -75,6 +77,7 @@ struct DisplayHardwareControls: View {
         let preset = hidpi.defaultProfile(for: display.id)
         width = String(preset.width); height = String(preset.height)
         selectedRate = nil // Never carry another monitor's explicit timing over.
+        nativeOnly = hidpi.sessions[display.id].map { $0.virtualID == nil } ?? (preset.nativeOnly ?? true)
     }
 
     private func toggleMute() {
@@ -106,18 +109,41 @@ struct DisplayHardwareControls: View {
 
     private var hiDPIControls: some View {
         VStack(alignment: .leading, spacing: 8) {
+            Picker(DisplayControlText.text("HiDPI 方式", "HiDPI method"), selection: $nativeOnly) {
+                Text(DisplayControlText.text("原生縮放", "Native scaling")).tag(true)
+                Text(DisplayControlText.text("虛擬鏡像", "Virtual mirror")).tag(false)
+            }
+            .pickerStyle(.segmented)
+            .disabled(hidpi.sessions[display.id] != nil || hidpi.switching != nil || nativeHiDPI.busy)
             HStack {
                 Toggle("HiDPI", isOn: Binding(get: { hidpi.sessions[display.id] != nil }, set: { enabled in
                     if enabled { hidpi.enable(display.id, profile: selectedProfile, preservePhysicalRate: selectedRate == nil) }
                     else { hidpi.disable(display.id) }
                 }))
                 .toggleStyle(.switch)
-                .disabled(hidpi.switching != nil || hidpi.confirmationDisplay != nil)
+                .disabled(hidpi.switching != nil || hidpi.confirmationDisplay != nil || nativeHiDPI.busy)
                 Spacer()
                 if let session = hidpi.sessions[display.id] {
                     Text("\(session.profile.width) × \(session.profile.height) · 2× · \(Int(session.profile.rate)) Hz")
                         .font(.caption).foregroundStyle(.secondary)
                 }
+            }
+            if nativeOnly, hidpi.sessions[display.id] == nil {
+                Text(DisplayControlText.text("直接使用實體螢幕；未提供所選模式時不會改用鏡像。", "Uses the physical display directly; unavailable modes do not fall back to mirroring."))
+                    .font(.caption).foregroundStyle(.secondary)
+                HStack {
+                    Button(DisplayControlText.text("準備原生縮放…", "Prepare native scaling…")) {
+                        nativeHiDPI.prepare(display.id, profile: selectedProfile)
+                    }
+                    Button(DisplayControlText.text("還原原生設定…", "Restore native configuration…")) {
+                        nativeHiDPI.restore(display.id)
+                    }
+                }.disabled(nativeHiDPI.busy || hidpi.switching != nil || hidpi.confirmationDisplay != nil)
+                Text(DisplayControlText.text("準備會備份並加入此型號的縮放模式，相同型號螢幕共用；需管理員授權，並重接螢幕或重新啟動後生效。", "Preparation backs up and adds scaled modes for this display model, shared by matching monitors. Administrator authorization and reconnect or restart are required."))
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            if let message = nativeHiDPI.message {
+                Text(message).font(.caption).foregroundStyle(.secondary)
             }
             if hidpi.switching == display.id {
                 HStack { ProgressView().controlSize(.small); Text(DisplayControlText.preparing) }
@@ -169,6 +195,6 @@ struct DisplayHardwareControls: View {
     private var rate: Double { selectedRate ?? hidpi.defaultProfile(for: display.id).rate }
 
     private var selectedProfile: VirtualHiDPIService.Profile {
-        .init(width: Int(width) ?? 0, height: Int(height) ?? 0, rate: rate)
+        .init(width: Int(width) ?? 0, height: Int(height) ?? 0, rate: rate, nativeOnly: nativeOnly)
     }
 }

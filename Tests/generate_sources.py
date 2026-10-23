@@ -301,7 +301,9 @@ def main():
           + "".join(declaration(hidpi, prefix) for prefix in [
               "    static func recordPhysicalSize(", "    func presets(", "    func defaultProfile(",
               "    func refreshRates(", "    static func valid(", "    static func stableVerificationCount(",
-              "    static func preferredRefreshRate(", "    static func refreshRateMatches("])
+              "    static func preferredRefreshRate(", "    static func refreshRateMatches(",
+              "    static func allowsVirtualDisplay(", "    static func nativeConnectionAllowed(",
+              "    static func shouldTryNative("])
           + "}\n}\n")
     write("BrightnessStep.swift", "import CoreGraphics\nimport Foundation\nimport os\n"
           + "extension BrightnessStepTests {\n"

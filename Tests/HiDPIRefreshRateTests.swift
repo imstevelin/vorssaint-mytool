@@ -12,6 +12,25 @@ enum HiDPIRefreshRateTests {
         var sessions: [UInt32: Session] = [:]
     }
     static func run(_ suite: TestSuite) {
+        let native = Profile(width: 2560, height: 1440, rate: 75, nativeOnly: true)
+        let legacy = Profile(width: 2560, height: 1440, rate: 75)
+        let virtual = Profile(width: 2560, height: 1440, rate: 75, nativeOnly: false)
+        suite.expect(!Service.shouldTryNative(virtual, legacyPreference: true)
+                     && Service.shouldTryNative(native, legacyPreference: false)
+                     && Service.shouldTryNative(legacy, legacyPreference: true)
+                     && !Service.shouldTryNative(legacy, legacyPreference: false),
+                     "explicit method choices override the legacy preference in both directions")
+        suite.expect(!Service.allowsVirtualDisplay(native) && Service.allowsVirtualDisplay(legacy),
+                     "native requests never silently fall back to a virtual display; legacy profiles retain behavior")
+        suite.expect(!Service.nativeConnectionAllowed(native, inMirrorSet: true)
+                     && Service.nativeConnectionAllowed(native, inMirrorSet: false),
+                     "native mode activation rejects an existing mirror set")
+        let oldJSON = Data(#"{"width":2560,"height":1440,"rate":75}"#.utf8)
+        suite.expect((try? JSONDecoder().decode(Profile.self, from: oldJSON)) == legacy,
+                     "old profiles decode without an unrequested strategy migration")
+        let restoredNative = try? JSONDecoder().decode(Profile.self, from: JSONEncoder().encode(native))
+        suite.expect(restoredNative == native && restoredNative?.nativeOnly == true,
+                     "native-only selection survives profile persistence and reconnect")
         let initial = ReconnectSignature(id: 2, mode: 1, width: 2560, height: 1440, rate: 75, color: Data([1]))
         let calibrated = ReconnectSignature(id: 2, mode: 1, width: 2560, height: 1440, rate: 75, color: Data([2]))
         let replacement = ReconnectSignature(id: 3, mode: 1, width: 2560, height: 1440, rate: 75, color: Data([2]))

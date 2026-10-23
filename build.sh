@@ -581,6 +581,7 @@ if (( TEST )); then
         Sources/Vorssaint/Core/SecureInputSupport.swift
         Sources/VirtualDisplayHost/VirtualDisplayCursorRefresh.swift
         Sources/VirtualDisplayHost/VirtualDisplayCursorHistory.swift
+        Sources/NativeHiDPISupport/NativeHiDPIOverride.swift
         Tests/*.swift
         build/generated-tests/*.swift
     )
@@ -628,7 +629,10 @@ swiftc -O -target "$TARGET" -sdk "$SDK" "${SDK_COMPAT_FLAGS[@]}" \
     -o build/objects/VirtualDisplayBridge/VirtualDisplayHost
 
 echo "▸ Compiling ($BUILD_CONFIGURATION) against $(basename "$SDK")…"
-APP_SOURCES=(Sources/Vorssaint/**/*.swift Sources/DisplayRecoverySupport/*.swift)
+swiftc -O -target "$TARGET" Sources/NativeHiDPISupport/NativeHiDPIOverride.swift \
+    Sources/NativeHiDPIHelper/main.swift -o build/objects/VirtualDisplayBridge/NativeHiDPIHelper
+
+APP_SOURCES=(Sources/Vorssaint/**/*.swift Sources/DisplayRecoverySupport/*.swift Sources/NativeHiDPISupport/*.swift)
 if (( ! DEV )); then
     # A release starts from an empty build directory, so nothing an earlier
     # build left behind (an old icon catalog, a staged bundle) can reach it.
@@ -684,6 +688,7 @@ mkdir -p "$STAGE/Contents/MacOS" "$STAGE/Contents/Resources" \
 cp "build/$EXECUTABLE" "$STAGE/Contents/MacOS/$EXECUTABLE"
 mkdir -p "$STAGE/Contents/Helpers" "$STAGE/Contents/Resources/ThirdParty"
 cp build/objects/VirtualDisplayBridge/DisplayRecoveryHelper "$STAGE/Contents/Helpers/DisplayRecoveryHelper"
+cp build/objects/VirtualDisplayBridge/NativeHiDPIHelper "$STAGE/Contents/Helpers/NativeHiDPIHelper"
 cp build/objects/VirtualDisplayBridge/VirtualDisplayHost "$STAGE/Contents/Helpers/VirtualDisplayHost"
 cp ThirdParty/HiDPIScaler-LICENSE ThirdParty/MonitorControl-LICENSE "$STAGE/Contents/Resources/ThirdParty/"
 cp "build/$FAN_HELPER_ID" "$STAGE/Contents/Library/LaunchServices/$FAN_HELPER_ID"
@@ -800,6 +805,7 @@ codesign_now_playing_adapter() {
 sign_bundle() {
     local bundle="$1"
     codesign_app "$bundle/Contents/Helpers/DisplayRecoveryHelper"
+    codesign_app "$bundle/Contents/Helpers/NativeHiDPIHelper"
     codesign_app "$bundle/Contents/Helpers/VirtualDisplayHost"
     local executable="$bundle/Contents/MacOS/$EXECUTABLE"
     local helper="$bundle/Contents/Library/LaunchServices/$FAN_HELPER_ID"
