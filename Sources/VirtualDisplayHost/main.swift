@@ -26,10 +26,12 @@ var profileApplied = false
 var profileAttempts = 0
 var published = false
 let cursorRefresh = VirtualDisplayCursorRefresh(displayID: id, rate: request.rate)
+let cursorHistory = VirtualDisplayCursorHistory(requestURL: url)
 let cursorStatusURL = url.appendingPathExtension("cursor-status")
 var lastStatusTime = -TimeInterval.infinity
 var lastCursorStatus: VirtualDisplayCursorRefresh.Status?
 func finish(_ status: Int32) -> Never {
+    cursorHistory.record(cursorRefresh.status, now: ProcessInfo.processInfo.systemUptime, force: true)
     cursorRefresh.stop()
     DisplayColorProfile.resetOwnedVirtualDisplay(id)
     VSDDestroyVirtualDisplay(id)
@@ -59,6 +61,7 @@ let timer = Timer(timeInterval: 0.2, repeats: true) { _ in
     if published {
         let now = ProcessInfo.processInfo.systemUptime
         cursorRefresh.heartbeat(now: now)
+        cursorHistory.record(cursorRefresh.status, now: now)
         if now - lastStatusTime >= 5 {
             // Bounded, local counters only: no key contents or pointer positions.
             let status = cursorRefresh.status

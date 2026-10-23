@@ -25,12 +25,19 @@ enum VirtualDisplayCursorRefreshTests {
                      "starting the refresh leaves the user's foreground application alone")
         let point = NSPoint(x: screen.frame.midX, y: screen.frame.midY)
         refresh.pointerActivity(at: point, now: 10)
-        let firstColor = panel.backgroundColor
+        suite.expect(waitForPaint(refresh, after: 0), "AppKit completes the first requested backing draw")
+        let firstPaints = refresh.surfacePaintCount
+        let firstColor = pixel(panel)
+        suite.expect(firstPaints > 0 && panel.sharingType == .readOnly,
+                     "pointer damage reaches a real content draw in a normally shareable compositor surface")
         refresh.pointerActivity(at: point, now: 10.001)
         suite.expect(refresh.redrawCount == 1, "submillisecond input bursts do not cause redundant rendering")
+        let previousPaints = refresh.surfacePaintCount
         refresh.pointerActivity(at: point, now: 10.02)
-        suite.expect(refresh.redrawCount == 2 && panel.backgroundColor != firstColor,
-                     "successive pointer frames cause actual window damage instead of a no-op redraw")
+        suite.expect(waitForPaint(refresh, after: previousPaints), "a later pointer frame reaches a later content draw")
+        suite.expect(refresh.redrawCount == 2 && refresh.surfacePaintCount > firstPaints
+                     && firstColor != nil && pixel(panel) != firstColor,
+                     "successive pointer frames paint different backing pixels, not just different window properties")
         refresh.pointerActivity(at: point, now: 10.028)
         suite.expect(refresh.redrawCount == 3,
                      "125 Hz pointer input does not alias down to 62.5 Hz on a 75 Hz source")
@@ -87,11 +94,77 @@ enum VirtualDisplayCursorRefreshTests {
         suite.expect(!fallback.activityPolling && fallback.redrawCount == 2,
                      "movement outside the owned display cannot trigger fallback rendering")
         fallback.stop()
+
+        sampledPoint = point
+        let progress = VirtualDisplayCursorRefresh(displayID: id, rate: 75, pointerLocation: { sampledPoint })
+        progress.start()
+        progress.heartbeat(now: 30)
+        sampledPoint.x += 5
+        progress.nativeActivity(at: sampledPoint, now: 30.01, eventTime: 30)
+        progress.heartbeat(now: 30.2)
+        suite.expect(progress.fallbackCount == 0 && !progress.activityPolling,
+                     "native input followed by a normal 190ms pause is not misclassified by a 200ms heartbeat")
+        sampledPoint.x += 5
+        progress.heartbeat(now: 30.4)
+        suite.expect(progress.fallbackCount == 1 && progress.activityPolling,
+                     "only movement without native progress over the same interval starts fallback")
+        sampledPoint.x += 5
+        progress.nativeActivity(at: sampledPoint, now: 30.405, eventTime: 30.4)
+        progress.heartbeat(now: 30.41)
+        suite.expect(!progress.activityPolling && progress.fallbackCount == 1,
+                     "native progress stops the fallback without replacing the monitor")
+        suite.expect(progress.maximumEventDelay > 0 && progress.maximumEventDelay < 0.02
+                     && progress.maximumHeartbeatGap > 0.19 && progress.maximumHeartbeatGap < 0.21,
+                     "diagnostics distinguish native delivery delay and host heartbeat scheduling gaps")
+        progress.stop()
+        historyTests(suite, status: progress.status)
         let disconnected = VirtualDisplayCursorRefresh(displayID: .max, rate: 75)
         disconnected.start()
         disconnected.pointerActivity(at: point, now: 1)
         suite.expect(disconnected.panel == nil && disconnected.redrawCount == 0,
                      "a missing source cannot accidentally refresh the main display")
         disconnected.stop()
+    }
+
+    private static func pixel(_ panel: NSPanel) -> NSColor? {
+        guard let view = panel.contentView,
+              let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { return nil }
+        view.cacheDisplay(in: view.bounds, to: bitmap)
+        return bitmap.colorAt(x: 0, y: 0)
+    }
+
+    private static func waitForPaint(_ refresh: VirtualDisplayCursorRefresh, after count: UInt64) -> Bool {
+        let deadline = Date(timeIntervalSinceNow: 1)
+        while refresh.surfacePaintCount <= count, Date() < deadline {
+            _ = RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.002))
+        }
+        return refresh.surfacePaintCount > count
+    }
+
+    private static func historyTests(_ suite: TestSuite, status: VirtualDisplayCursorRefresh.Status) {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        do { try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true) }
+        catch { suite.expect(false, "cursor history fixture directory is writable"); return }
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let request = directory.appendingPathComponent("journal.json.host-2")
+        let old = VirtualDisplayCursorHistory(requestURL: request)
+        old.record(status, now: 1, capturedAt: 100)
+        old.record(status, now: 2, capturedAt: 101)
+        let initial = try? Data(contentsOf: old.currentURL)
+        let one = initial.flatMap { try? JSONDecoder().decode([VirtualDisplayCursorHistory.Sample].self, from: $0) }
+        suite.expect(one?.count == 1, "unchanged status and sub-five-second samples do not write idle history")
+        for i in 0..<15 { old.record(status, now: Double(i + 10), capturedAt: Double(i + 110), force: true) }
+        let final = try? Data(contentsOf: old.currentURL)
+        let bounded = final.flatMap { try? JSONDecoder().decode([VirtualDisplayCursorHistory.Sample].self, from: $0) }
+        suite.expect(bounded?.count == 12 && bounded?.last?.capturedAt == 124,
+                     "shutdown history retains only the latest twelve samples")
+        let restarted = VirtualDisplayCursorHistory(requestURL: directory.appendingPathComponent("next.json.host-2"))
+        restarted.record(status, now: 30, capturedAt: 200)
+        suite.expect((try? Data(contentsOf: restarted.previousURL)) == final,
+                     "a HiDPI off/on cycle preserves the old host's final evidence before new counters start")
+        let other = VirtualDisplayCursorHistory(requestURL: directory.appendingPathComponent("next.json.host-3"))
+        other.record(status, now: 30, capturedAt: 200)
+        suite.expect(other.currentURL != restarted.currentURL && (try? Data(contentsOf: restarted.previousURL)) == final,
+                     "each physical display keeps its own bounded history without overwriting another display")
     }
 }

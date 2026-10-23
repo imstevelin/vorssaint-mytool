@@ -580,6 +580,7 @@ if (( TEST )); then
         Sources/Vorssaint/Services/ManagedDownloads/WhatsAppDownloadSupport.swift
         Sources/Vorssaint/Core/SecureInputSupport.swift
         Sources/VirtualDisplayHost/VirtualDisplayCursorRefresh.swift
+        Sources/VirtualDisplayHost/VirtualDisplayCursorHistory.swift
         Tests/*.swift
         build/generated-tests/*.swift
     )
