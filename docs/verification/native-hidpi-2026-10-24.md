@@ -27,7 +27,7 @@
 
 - 初次 display-restoration：303 checks 通過。
 - 最終完整測試 **113419 checks** 通過，另含 AudioFeedbackBridge 14 checks、偏好清理、移除 Spaces 與 Developer 安裝隔離。涵蓋原生策略持久化、legacy 相容、明確鏡像選擇不被 native-first 覆蓋、mirror set 拒絕與 root receipt 已知狀態／第三方衝突政策。
-- 最終建置、selftest、簽章與 CI 結果待本輪完成後補入。
+- 最終 Release 建置、selftest、strict deep codesign、Info.plist lint、NativeHiDPIHelper arm64／簽章檢查通過；CI 尚在執行。
 - 實體新模式啟用、重接、睡醒與卡頓長時間驗收尚未完成。
 
 ## 本機系統覆寫準備
@@ -36,3 +36,11 @@
 - 此次新增 record 為 `0000140000000b400000000900a00000`（5120×2880 backing 尺寸）。檔案 SHA-256 `2d532e12e9cd75525d638a3ce11ce4754873e5aeb33c6a1c6a2fd74bd73ba49f`，與 root receipt 中的 installed bytes 完全一致。
 - 原先此型號沒有覆寫檔，receipt 保存這個不存在狀態；還原將只移除自己的檔案。receipt 位於 `/Library/Application Support/com.imstevelin.vorssaint-imstevelin/NativeHiDPI/1715-12994.json`。
 - 此處只證明準備成功，尚未證明重接後 macOS 接受此 record，亦未證明原生 2560×1440、2×、75Hz 與長時間游標改善。
+
+## 候選 App 安裝與目前狀態
+
+- 程式提交 `6c8c6a04`，沿用本次修復已授權的備份／正式 App 替換流程；版本仍為候選 1.1.1 (12)，沒有建立 Release 或 tag。
+- 舊 App、退出前／後偏好及自有 Application Support 保存於使用者 Backups／`20261024-035943-before-native-hidpi-6c8c6a04`。只移除 PA328QV 先前已確認的虛擬鏡像自動恢復 profile，避免混淆原生測試；其他偏好與退出後備份逐項完全相同，原 profile 另存。
+- 新 App 安裝後 selftest／strict deep codesign 通過。主程式 SHA-256 `e3b19e602ba19f370e266ec476603f38c9d745368639841780df1f1fbb1befa1`；NativeHiDPIHelper `25218408faf112730bd4c397741bfeef8b9a3b6d72d98ba4e9d7cbf99eb4bf74`，皆與 stage 一致。
+- 已在實際設定頁確認「原生縮放」選中、HiDPI 尚未啟用、準備／還原按鈕存在。此時 CoreGraphics 只有實體顯示器、mirror source 為 0、沒有 VirtualDisplayHost，仍為 2560×1440、1×、75Hz。
+- 已請使用者重新拔插訊號線以啟用覆寫；尚未收到完成結果。不得把目前 1× 狀態或設定頁存在描述為原生 HiDPI 已成功。
