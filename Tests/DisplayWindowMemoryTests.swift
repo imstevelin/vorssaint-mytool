@@ -7,6 +7,7 @@ import Foundation
 enum DisplayWindowMemoryTests {
     static func run(_ suite: TestSuite) {
         interactionTests(suite)
+        manualClaimTests(suite)
         normalWindowTests(suite)
         openingGeometryTests(suite)
         DisplayWindowMemoryScanTests.run(suite)
@@ -77,6 +78,11 @@ enum DisplayWindowMemoryTests {
         suite.expect(DisplayWindowMemorySupport.openingFrame(in: stored, bundleID: "other.app",
             titleDigest: "tab-one", currentFrame: opened, displayBounds: display, usableBounds: usable) == nil,
             "opening geometry cannot leak to another application")
+        // Model a persisted/cold folder-specific maximum from an older choice.
+        stored.openingFrames?[app + ":old-folder"] = RememberedWindowGeometry(
+            relativeFrame: usable, maximized: true)
+        suite.expect(restore(opened, title: "old-folder") == original,
+                     "the latest app geometry supersedes an older folder maximum even after a cold profile lookup")
         let beforeTile = stored
         remember(CGRect(x: usable.minX, y: usable.minY, width: usable.width / 2, height: usable.height))
         suite.expect(stored == beforeTile, "temporary tiling retains the last normal opening frame")
@@ -147,6 +153,24 @@ enum DisplayWindowMemoryTests {
         suite.expect(DisplayWindowMemorySupport.action(previous: consumed, display: "builtin", frame: frame,
             now: now, interacting: false, generation: 1) == .observe,
             "topology restore is consumed once instead of fighting later manual changes")
+    }
+
+    private static func manualClaimTests(_ suite: TestSuite) {
+        let maximum = CGRect(x: 0, y: 38, width: 1512, height: 900)
+        let normal = CGRect(x: 100, y: 100, width: 900, height: 650)
+        func identity(_ frame: CGRect, pid: pid_t = 123) -> DisplayWindowMemorySupport.SnapshotIdentity {
+            .init(pid: pid, bundleID: "com.apple.finder", frame: frame)
+        }
+        var input = DisplayWindowMemorySupport.Interaction()
+        input.update(current: [1: identity(normal)], previous: [1: identity(maximum)], pressed: true)
+        suite.expect(input.claimed[1] != nil, "a known window resized before a drag poll belongs to the user")
+        input.update(current: [1: identity(normal), 2: identity(maximum)], previous: [:], pressed: true)
+        suite.expect(input.claimed[2] == nil, "merely opening a window with a mouse click retains automatic restore")
+        input.update(current: [1: identity(normal), 2: identity(normal)], previous: [:], pressed: false)
+        suite.expect(input.claimed[2] != nil && !input.tracking,
+                     "a new window resized before the first eligible AX snapshot cancels stale restoration on release")
+        input.update(current: [2: identity(normal, pid: 456)], previous: [:], pressed: false)
+        suite.expect(input.claimed.isEmpty, "closed and recycled window identities cannot inherit a manual claim")
     }
 
     private static func interactionTests(_ suite: TestSuite) {
@@ -227,6 +251,7 @@ enum DisplayWindowMemoryScanTests {
         var windows: [VisibleWindow] = []
         var writes: [CGRect] = []
         var persists = 0
+        var layoutCandidates: [CGWindowID] = []
         func AXIsProcessTrusted() -> Bool { true }
         func visibleWindows() -> [VisibleWindow] { windows }
         func displayKey(_ screen: Screen) -> String? { screen.key }
@@ -240,7 +265,9 @@ enum DisplayWindowMemoryScanTests {
             }
             return true
         }
-        func restoreLayouts(on displays: Set<String>, available windows: [VisibleWindow]) {}
+        func restoreLayouts(on displays: Set<String>, available windows: [VisibleWindow]) {
+            layoutCandidates = windows.map(\.id)
+        }
         func persist() { persists += 1 }
     }
     static func run(_ suite: TestSuite) {
@@ -290,6 +317,54 @@ enum DisplayWindowMemoryScanTests {
                      "after interaction ends a reopened window returns to its saved maximum")
         service.scan()
         suite.expect(service.writes.count == 2, "a successful maximized restore is applied only once")
+        let beforeAutomaticLearning = service.persists
+        service.observations[12]?.state.stableSince = Date().addingTimeInterval(-2)
+        service.scan()
+        suite.expect(service.persists == beforeAutomaticLearning,
+                     "an automatic maximum restore never republishes itself as a new user preference")
+        // Internal-screen regression: a new Finder window is manually resized
+        // before its first AX-eligible scan, while an old folder profile is max.
+        let builtin = Screen(key: "builtin", bounds: CGRect(x: 0, y: 0, width: 1512, height: 982),
+                             usable: CGRect(x: 0, y: 38, width: 1512, height: 900))
+        let finder = "com.apple.finder"
+        let smaller = CGRect(x: 110, y: 130, width: 940, height: 640)
+        let manualService = Service()
+        var remembered = RememberedDisplay()
+        DisplayWindowMemorySupport.rememberOpeningFrame(builtin.usable, in: &remembered,
+            bundleID: finder, titleDigest: "old-folder", displayBounds: builtin.bounds, usableBounds: builtin.usable)
+        manualService.memory.displays[builtin.key] = remembered
+        func finderWindow(_ frame: CGRect, id: CGWindowID, title: String) -> VisibleWindow {
+            VisibleWindow(id: id, pid: 321, bundleID: finder, titleDigest: title, frame: frame, screen: builtin)
+        }
+        manualService.windows = [finderWindow(smaller, id: 40, title: "new-folder")]
+        manualService.processWindows(manualService.windows, manualWindowIDs: [40])
+        suite.expect(manualService.writes.isEmpty,
+                     "a manually resized new Finder window is never forced back to the old built-in maximum")
+        manualService.observations[40]?.state.stableSince = Date().addingTimeInterval(-2)
+        manualService.scan()
+        manualService.windows = [finderWindow(builtin.usable, id: 41, title: "old-folder")]
+        manualService.scan()
+        suite.expect(manualService.writes == [smaller],
+                     "reopening the old Finder folder uses the later manual size rather than its stale maximum")
+        let reconnect = Service()
+        reconnect.defaults.layouts = true
+        reconnect.pendingLayoutDisplays = [builtin.key]
+        reconnect.transitionGeneration = 1
+        reconnect.windows = [finderWindow(smaller, id: 42, title: "old-folder")]
+        reconnect.memory = manualService.memory
+        reconnect.processWindows(reconnect.windows, manualWindowIDs: [42])
+        reconnect.scan()
+        suite.expect(reconnect.layoutCandidates.isEmpty && reconnect.writes.isEmpty
+            && reconnect.observations[42]?.state.generation == 1,
+            "manual movement consumes both full-layout and opening restoration during reconnect")
+        let matching = Service()
+        matching.memory = manualService.memory
+        matching.windows = [finderWindow(smaller, id: 43, title: "new-folder")]
+        matching.scan()
+        matching.observations[43]?.state.stableSince = Date().addingTimeInterval(-2)
+        matching.scan()
+        suite.expect(matching.writes.isEmpty && matching.persists == 0,
+                     "opening at the saved frame does not renew an old preference merely by observing it")
         let deferred = Service()
         deferred.windows = [window(original, id: 30)]
         deferred.processWindows(deferred.windows, deferredOpeningWindows: [30])

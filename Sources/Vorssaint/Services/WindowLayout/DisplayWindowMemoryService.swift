@@ -67,6 +67,7 @@ final class DisplayWindowMemoryService {
     private var transitionGeneration = 0
     private var pendingLayoutDisplays = Set<String>()
     private var interactionResumeAt = Date.distantPast
+    private var interaction = DisplayWindowMemorySupport.Interaction()
 
     private init() {
         if let data = defaults.data(forKey: DefaultsKey.windowDisplayMemory),
@@ -144,6 +145,7 @@ final class DisplayWindowMemoryService {
         if let displayObserver { NotificationCenter.default.removeObserver(displayObserver) }
         displayObserver = nil
         observations.removeAll()
+        interaction = DisplayWindowMemorySupport.Interaction()
         pendingLayoutDisplays.removeAll()
         transitionGeneration += 1
     }
@@ -201,9 +203,11 @@ final class DisplayWindowMemoryService {
     private func scan() {
         guard timer != nil, !managedDisplayTransition, AXIsProcessTrusted(),
               SessionActivity.shared.isActive, Date() >= scanResumeAt else { return }
+        let candidates = visibleWindows()
+        trackInteraction(candidates)
         if NSEvent.pressedMouseButtons != 0 {
             interactionResumeAt = Date().addingTimeInterval(0.25)
-            return // No AX traffic while dragging; retain the restore opportunity.
+            return // Track user geometry without AX traffic while dragging.
         }
         guard Date() >= interactionResumeAt, !queryInFlight else { return }
         guard storeLoaded else {
@@ -223,7 +227,6 @@ final class DisplayWindowMemoryService {
             }
             return
         }
-        let candidates = visibleWindows()
         let generation = lifecycleGeneration
         let transition = transitionGeneration
         let events = eventVersions
@@ -248,13 +251,14 @@ final class DisplayWindowMemoryService {
                 guard timer != nil, lifecycleGeneration == generation,
                       transitionGeneration == transition,
                       !managedDisplayTransition, SessionActivity.shared.isActive else { return }
+                let current = visibleWindows()
+                trackInteraction(current)
                 if NSEvent.pressedMouseButtons != 0 {
                     interactionResumeAt = Date().addingTimeInterval(0.25)
                     return
                 }
                 // AX may have waited on another app. Never learn or restore a
                 // geometry that moved while the query was outstanding.
-                let current = visibleWindows()
                 func identities(_ windows: [VisibleWindow]) -> [CGWindowID: DisplayWindowMemorySupport.SnapshotIdentity] {
                     Dictionary(windows.map { ($0.id, .init(pid: $0.pid, bundleID: $0.bundleID, frame: $0.frame)) },
                                uniquingKeysWith: { first, _ in first })
@@ -289,9 +293,17 @@ final class DisplayWindowMemoryService {
                     else { return nil }
                     return window.id
                 })
-                processWindows(current.filter {
+                let eligibleWindows = current.filter {
                     valid.contains($0.id) && resolved.eligible.contains(.init(pid: $0.pid, id: $0.id))
-                }, capturesLayout: complete, deferredOpeningWindows: deferredOpenings)
+                }
+                processWindows(eligibleWindows, capturesLayout: complete, deferredOpeningWindows: deferredOpenings,
+                               manualWindowIDs: Set(interaction.claimed.keys))
+                for window in eligibleWindows {
+                    guard let state = observations[window.id]?.state,
+                          state.generation == transitionGeneration,
+                          DisplayWindowMemorySupport.close(state.frame, window.frame) else { continue }
+                    interaction.claimed.removeValue(forKey: window.id)
+                }
                 if !deferredOpenings.isEmpty {
                     // A title changed during AX I/O. Look up its cold profile
                     // promptly rather than consuming the restore with an app
@@ -302,8 +314,19 @@ final class DisplayWindowMemoryService {
         }
     }
 
+    private func trackInteraction(_ windows: [VisibleWindow]) {
+        let current = Dictionary(windows.map {
+            ($0.id, DisplayWindowMemorySupport.SnapshotIdentity(pid: $0.pid, bundleID: $0.bundleID, frame: $0.frame))
+        }, uniquingKeysWith: { first, _ in first })
+        let previous = observations.mapValues {
+            DisplayWindowMemorySupport.SnapshotIdentity(pid: $0.pid, bundleID: $0.bundleID, frame: $0.state.frame)
+        }
+        interaction.update(current: current, previous: previous, pressed: NSEvent.pressedMouseButtons != 0)
+    }
+
     private func processWindows(_ windows: [VisibleWindow], capturesLayout: Bool = true,
-                                deferredOpeningWindows: Set<CGWindowID> = []) {
+                                deferredOpeningWindows: Set<CGWindowID> = [],
+                                manualWindowIDs: Set<CGWindowID> = []) {
         guard !managedDisplayTransition, AXIsProcessTrusted(), SessionActivity.shared.isActive,
               Date() >= scanResumeAt else { return }
         let now = Date()
@@ -316,7 +339,13 @@ final class DisplayWindowMemoryService {
             let displays = pendingLayoutDisplays
             pendingLayoutDisplays.removeAll()
             if defaults.bool(forKey: DefaultsKey.windowRestoreDisplayLayout) {
-                restoreLayouts(on: displays, available: windows)
+                restoreLayouts(on: displays, available: windows.filter { !manualWindowIDs.contains($0.id) })
+                for window in windows where manualWindowIDs.contains(window.id) {
+                    guard let display = displayKey(window.screen) else { continue }
+                    observations[window.id] = Observation(pid: window.pid, bundleID: window.bundleID,
+                        state: DisplayWindowObservation(display: display, frame: window.frame,
+                            stableSince: now, generation: transitionGeneration), lastSeen: now)
+                }
                 captureResumeAt = now.addingTimeInterval(2)
                 return // Never capture the pre-placement WindowServer snapshot.
             }
@@ -332,25 +361,37 @@ final class DisplayWindowMemoryService {
                 if previous?.pid != window.pid || previous?.bundleID != window.bundleID {
                     previous = nil // WindowServer can recycle a closed window's ID.
                 }
+                if manualWindowIDs.contains(window.id) {
+                    // A user drag consumes any pending opening/topology restore.
+                    previous = Observation(pid: window.pid, bundleID: window.bundleID,
+                        state: DisplayWindowObservation(display: display, frame: window.frame,
+                            stableSince: now, generation: transitionGeneration), lastSeen: now)
+                }
                 let decision = DisplayWindowMemorySupport.action(
                     previous: previous?.state, display: display, frame: window.frame,
                     now: now, interacting: interacting, generation: transitionGeneration)
                 if decision == .wait { continue }
                 if decision == .restore {
                     if deferredOpeningWindows.contains(window.id) { continue }
+                    var acceptedFrame = window.frame
+                    var restored = false
+                    var matchesSaved = false
                     if let desired = DisplayWindowMemorySupport.openingFrame(
                         in: memory.displays[display], bundleID: window.bundleID,
                         titleDigest: window.titleDigest, currentFrame: window.frame,
-                        displayBounds: displayBounds(window.screen), usableBounds: usableBounds(window.screen)),
-                       !DisplayWindowMemorySupport.close(window.frame, desired) {
-                        appliedFrame = setFrame(desired, for: window) || appliedFrame
+                        displayBounds: displayBounds(window.screen), usableBounds: usableBounds(window.screen)) {
+                        matchesSaved = DisplayWindowMemorySupport.close(window.frame, desired)
+                        if !matchesSaved {
+                            restored = setFrame(desired, for: window)
+                            if restored { acceptedFrame = desired; appliedFrame = true }
+                        }
                     }
                     // Consume the transition even if the app rejects the request.
                     // Retrying a stale frame fights manual moves and app size limits.
                     observations[window.id] = Observation(
                         pid: window.pid, bundleID: window.bundleID,
-                        state: DisplayWindowObservation(display: display, frame: window.frame,
-                                                        stableSince: now, generation: transitionGeneration), lastSeen: now)
+                        state: DisplayWindowObservation(display: display, frame: acceptedFrame,
+                                                        stableSince: now, learned: restored || matchesSaved, generation: transitionGeneration), lastSeen: now)
                     continue
                 }
                 var observation = previous!
