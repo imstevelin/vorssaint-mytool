@@ -25,5 +25,16 @@
 ## 驗證
 
 - display-restoration：289 checks 通過，包含正常停頓不誤判、通知恢復後停用 fallback、實際 draw 完成及像素交替、歷史容量限制與跨 host 輪替。
-- 完整測試與 Release 建置執行中，完成後補記。
+- 最終完整測試 113399 checks、Release 建置、selftest 與簽章檢查通過，細節見下方安裝紀錄。
 - 本次來源為修正候選，尚不能宣稱已證明使用者該次 macOS 鏡像停滯的精確觸發。需保留實機即時及長時間觀察結果。
+
+## 安裝與新觀察
+
+- 最終來源提交 `ab6cfab9`：完整回歸 113399 checks、AudioFeedbackBridge、偏好清理、移除 Spaces、Developer 安裝隔離檢查通過。Release 建置、selftest、strict deep codesign、plist lint 通過，host 為 arm64。
+- 沿用使用者本次修復流程已明確給出的「備份後替換正式 App，保留目前設定」授權，先備份舊 App、退出前／後偏好與退出後 Application Support，再替換及啟動正式位置。備份目錄為 App 自有 Backups／`20261023-152104-before-backing-damage-ab6cfab9`。
+- 安裝後主程式 SHA-256 `98a47a3247fcc7f14628867b37d4e7073f2e1e242da67f64b57f37b9f100575f`；host `a0b6cdd77f3d0097706e167a806a7b6795607a0af14bb965b47ba121ffa4342f`，皆與 stage 一致。已安裝程式 selftest／strict deep codesign 通過。
+- 15:22:47 啟動驗證來源與實體鏡像皆為 2560×1440、5120×2880 像素、75Hz，模式／更新率／鏡像／兩端 ICC 全部通過。HiDPI 偏好內容相同，其他偏好僅執行態的 `systemShortcutsSuppressed` 變化。
+- 新來源約二十秒的診斷為 585 次原生事件、547 次重繪請求、548 次實際內容 draw（包含初始繪製）、一次 fallback、沒有 panel repair，活動取樣已停止。這是正常時的運作證據，不是偶發症狀根治的證據。
+- 使用者補充並明確確認：「影片流暢，但游標與捲動仍會卡」。這不支持單純整個鏡像停止更新的解釋，也不能把本次 backing damage 改善當成已證明的根因修復。後續須區分事件送達延遲、App／WindowServer 輸入處理與局部／游標合成。
+- 已檢查目前啟用功能及 tap masks：主程式的 mouseMoved 監聽為 listenOnly，FocusFollowsMouse／SmoothScroll／LinearScroll／MouseAcceleration 等功能未啟用；AppSwitcher 的非 session scroll 快速路徑直接傳遞。尚無足夠證據把卡頓歸因於某個輸入功能，未擅自停用或改寫它們。卡頓仍需故障當下或切換前保存的資料來定位。
+- [本次 Fork CI](https://github.com/imstevelin/vorssaint-mytool/actions/runs/39916910232) 已成功，驗證程式提交 `ab6cfab9`。保留草稿，不發布版本，長時間及復發驗收仍待完成。
