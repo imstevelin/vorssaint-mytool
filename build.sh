@@ -582,6 +582,7 @@ if (( TEST )); then
         Sources/VirtualDisplayHost/VirtualDisplayCursorRefresh.swift
         Sources/VirtualDisplayHost/VirtualDisplayCursorHistory.swift
         Sources/NativeHiDPISupport/NativeHiDPIOverride.swift
+        Sources/DisplayRecoverySupport/NativeDisplayModes.swift
         Tests/*.swift
         build/generated-tests/*.swift
     )
@@ -620,12 +621,12 @@ clang -c -fblocks -fno-objc-arc -target "$TARGET" -isysroot "$SDK" \
     -I Sources/VirtualDisplayBridge/include Sources/VirtualDisplayBridge/VirtualDisplayBridge.m \
     -o build/objects/VirtualDisplayBridge/VirtualDisplayBridge.o
 swiftc -O -target "$TARGET" -sdk "$SDK" "${SDK_COMPAT_FLAGS[@]}" \
-    Sources/DisplayRecoverySupport/DisplayRecoverySnapshot.swift Sources/DisplayRecoveryHelper/main.swift \
+    Sources/DisplayRecoverySupport/*.swift Sources/DisplayRecoveryHelper/main.swift \
     -o build/objects/VirtualDisplayBridge/DisplayRecoveryHelper
 
 swiftc -O -target "$TARGET" -sdk "$SDK" "${SDK_COMPAT_FLAGS[@]}" \
     -I Sources/VirtualDisplayBridge/include build/objects/VirtualDisplayBridge/VirtualDisplayBridge.o \
-    Sources/DisplayRecoverySupport/DisplayRecoverySnapshot.swift Sources/VirtualDisplayHost/*.swift \
+    Sources/DisplayRecoverySupport/*.swift Sources/VirtualDisplayHost/*.swift \
     -o build/objects/VirtualDisplayBridge/VirtualDisplayHost
 
 echo "▸ Compiling ($BUILD_CONFIGURATION) against $(basename "$SDK")…"

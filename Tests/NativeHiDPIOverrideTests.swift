@@ -3,6 +3,27 @@ import Foundation
 
 enum NativeHiDPIOverrideTests {
     static func run(_ suite: TestSuite) {
+        // Real descriptor shape observed for the hidden PA328QV 75 Hz mode.
+        // The index is ephemeral and must always come from fresh enumeration.
+        var descriptor = [UInt8](repeating: 0, count: 0xd4)
+        func put(_ value: UInt32, at offset: Int) {
+            for byte in 0..<4 { descriptor[offset + byte] = UInt8(truncatingIfNeeded: value >> (8 * byte)) }
+        }
+        put(89, at: 0); put(0x200001, at: 4); put(2560, at: 8); put(1440, at: 12)
+        descriptor[190] = 75; put(Float(2).bitPattern, at: 208)
+        let hidden = NativeDisplayModes.decode(Data(descriptor), index: 89)
+        suite.expect(hidden?.matches(width: 2560, height: 1440, pixelWidth: 5120, pixelHeight: 2880, rate: 75) == true,
+                     "a valid hidden native HiDPI descriptor retains its logical size, density and refresh rate")
+        suite.expect(hidden?.matches(width: 2560, height: 1440, pixelWidth: 2560, pixelHeight: 1440, rate: 75) == false
+                     && hidden?.matches(width: 2560, height: 1440, pixelWidth: 5120, pixelHeight: 2880, rate: 60) == false,
+                     "private mode selection cannot substitute LoDPI or a lower refresh rate")
+        suite.expect(NativeDisplayModes.decode(Data(descriptor.dropLast()), index: 89) == nil
+                     && NativeDisplayModes.decode(Data(descriptor), index: 90) == nil,
+                     "an incomplete or mismatched private descriptor fails closed")
+        put(0, at: 4)
+        suite.expect(NativeDisplayModes.decode(Data(descriptor), index: 89) == nil, "an invalid private mode is never selectable")
+        put(1, at: 4); put(Float.nan.bitPattern, at: 208)
+        suite.expect(NativeDisplayModes.decode(Data(descriptor), index: 89) == nil, "unknown descriptor density fails closed")
         let id = NativeHiDPIOverride.Identity(vendor: 0x6b3, product: 0x32c2)
         suite.expect(id.relativePath == "DisplayVendorID-6b3/DisplayProductID-32c2", "native override uses the actual vendor/product model path")
         do {

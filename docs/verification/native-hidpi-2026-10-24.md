@@ -86,3 +86,25 @@
 - 完整本機測試 **113430 checks**、AudioFeedbackBridge 14 checks、偏好清理／移除 Spaces／Developer 安裝隔離通過。Release 建置、selftest、strict deep codesign 通過。
 - 已備份後安裝至正式位置並啟動；備份 `20261024-045910-before-native-panel-correction`，替換前後偏好完全相同。主程式 SHA-256 `e92bdd8c85244ca081efc7316b6956bfb78d99d58aff01ad9bdf0e08e109b028`，helper `253540154a0fb4648c700a1c010843965ab59dbed2f2f53e976bc96298c9c360`，與 stage 一致。
 - 面板尺寸校正的系統管理員授權仍在等待；目前不能宣稱新的 DisplayPixelDimensions 已寫入或原生 HiDPI 已啟用。保留未鏡像的 1×、75Hz 現狀。新提交的 Fork CI、模式啟用與長時間卡頓驗收仍待確認。
+
+
+## 重接後：公開模式清單的漏列
+
+- 面板校正的 helper exit 0，系統覆寫 DisplayPixelDimensions=`00000a00000005a0`，receipt nativePanelSize=2560×1440、installed bytes 一致，root／0644，原始覆寫仍保存不存在狀態。覆寫 SHA-256 `e8e3909b22c9020f3405d4e7eb73b79c52375cef2ad3f1fd18c2154523e86e41`。
+- 使用者再次重新拔插後，CoreDisplay 確認已讀入 DisplayPixelDimensions=2560×1440，但公開 CGDisplayCopyAllDisplayModes 仍不列出目標。不能再要求以重開／重接解決這個漏列，亦不能把面板尺寸差異視為充分原因。
+- BetterDisplay arm64 的 imports 包含 CGSGetNumberOfDisplayModes、CGSGetDisplayModeDescriptionOfLength 與 CGSConfigureDisplayMode。以同一唯讀底層介面讀到 156 個模式，其中 index 89 為 2560×1440、density 2、75Hz、flags 0x200001；另有 60／50Hz 等選項。公開清單漏列這些模式，造成前版 native-only 誤報模式不可用。index 89 僅是當次觀測，不得持久化或寫死。
+- 新增動態解析的底層模式 bridge，檢查 descriptor 大小、索引、有效旗標、尺寸、density 與更新率。只在使用者明確選擇原生且公開模式路徑未成功時使用，保留已就緒的獨立 watchdog，再以實際 CoreGraphics readback、無鏡像、實體更新率／ICC 與確認倒數驗證；不建立虛擬來源。
+- Recovery snapshot 同樣可從底層清單匹配原先合法的模式，避免後續原生 session 的回復基線也因公開清單漏列而無法還原。所有索引在每次查詢重新解析。
+- [Hammerspoon 原始碼](https://github.com/Hammerspoon/hammerspoon/blob/master/extensions/screen/libscreen.m) 與 [displayplacer 原始碼](https://github.com/jakehilborn/displayplacer/blob/master/src/DisplayPlacer.c) 提供 descriptor／介面交叉參考；未複製商業程式原碼。324 項 display-restoration 通過，涵蓋當次 descriptor 形狀、2×／更新率匹配與截斷、錯誤索引、無效旗標、未知 density 的拒絕。實際切換結果另行記錄。
+
+
+### 底層模式修正版：實際啟用與短時間驗收
+
+- 完整本機回歸 **113435 checks**、AudioFeedbackBridge 14 checks、偏好清理／移除 Spaces／Developer 安裝隔離通過。Release 建置、selftest、strict deep codesign 通過。
+- 已備份後替換正式 App，備份 `20261024-052556-before-native-private-mode-fix`，替換前後偏好相同。主程式 SHA-256 `d3419cbc67bd59452606f900f0fe6b305803134e8e55e514b834d6300c2fc051`；helper `2f5420ef079491c6983609bc292372da84ea13475a72474d4a63aa4fa74a2c4d` 與 stage 一致。未發版。
+- 從實際設定頁選中原生縮放並開啟 HiDPI，進入原有確認倒數。實際 CoreGraphics 讀回顯示器 2、介面 2560×1440、繪製像素 5120×2880、75Hz、mirror source=0、inMirrorSet=0，設定頁可讀且顯示 2×／75Hz。
+- 初次檢查期間倒數到期，App 回到 HiDPI off 並顯示「已恢復原顯示設定」，驗證自動回退流程可完成；這次沒有把回退瞬間的物理模式另行讀回。重新啟用後，agent 依先前模式讀回與可讀畫面按下保留設定，不代替使用者對流暢度的驗收。
+- 保留後再次讀回 2560×1440／5120×2880／75Hz、無鏡像；程序只有正式 App 與 DisplayRecoveryHelper，沒有 VirtualDisplayHost。journal confirmed=true、hostPIDs=[]，已儲存 profile nativeOnly=true、2560×1440、75Hz。
+- ICC 有效資料與 ColorSync 顯示器 profile 相同，SHA-256 `331d871289cfca07e305d0f29e1ba2f18e7754f815f692f21489651ceb0b5103`，App 原有連續模式／更新率／ICC 驗證通過。
+- 使用者在約 30 秒移動、點擊與捲動驗收回報「目前流暢，畫面正常」。這確認原生啟用與短時間使用，不證明先前間歇性卡頓永不復發；原生啟用後的睡醒、重接與長時間穩定性仍待觀察。PR 保留草稿，未合併或建立 Release／tag。
+- 前一個面板校正提交 `253a47ba` 的 Fork CI（40023477895）成功；本次底層模式變更的 CI 需獨立確認。

@@ -224,16 +224,23 @@ final class VirtualHiDPIService: ObservableObject {
             return
         }
         let modes = CGDisplayCopyAllDisplayModes(id, [kCGDisplayShowDuplicateLowResolutionModes: true] as CFDictionary) as? [CGDisplayMode] ?? []
-        if Self.shouldTryNative(profile, legacyPreference: preferNative), let native = modes.first(where: { Self.matches($0, profile: profile) }),
-           CGDisplaySetDisplayMode(id, native, nil) == .success,
-           let actual = CGDisplayCopyDisplayMode(id), Self.matches(actual, profile: profile) {
-            sessions[id] = Session(uuid: uuid, physicalID: id, virtualID: nil, profile: profile, original: original)
-            awaitVerification(id, token: token, attempts: 0)
-            return
+        if Self.shouldTryNative(profile, legacyPreference: preferNative) {
+            let publicApplied = modes.first(where: { Self.matches($0, profile: profile) })
+                .map { CGDisplaySetDisplayMode(id, $0, nil) == .success } ?? false
+            let privateApplied = !publicApplied && profile.nativeOnly == true
+                && NativeDisplayModes.apply(display: id, width: profile.width, height: profile.height, rate: profile.rate)
+            if publicApplied || privateApplied {
+                _ = DisplayRecoverySnapshot.onlineIDs()
+                if let actual = CGDisplayCopyDisplayMode(id), Self.matches(actual, profile: profile) {
+                    sessions[id] = Session(uuid: uuid, physicalID: id, virtualID: nil, profile: profile, original: original)
+                    awaitVerification(id, token: token, attempts: 0)
+                    return
+                }
+            }
         }
         guard Self.allowsVirtualDisplay(profile) else {
             abortCreation(id, original: original, virtual: nil,
-                message: DisplayControlText.text("系統尚未提供所選原生 HiDPI 模式。若已準備並重接仍無效，請重新啟動 macOS 再試；不會建立虛擬鏡像。", "The requested native HiDPI mode is unavailable. If preparation and reconnect did not activate it, restart macOS and retry. No virtual mirror was created."))
+                message: DisplayControlText.text("所選原生 HiDPI 模式無法啟用或讀回驗證未通過；未建立虛擬鏡像。", "The requested native HiDPI mode could not be enabled or verified. No virtual mirror was created."))
             return
         }
         guard available else {
