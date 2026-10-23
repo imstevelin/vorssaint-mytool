@@ -36,6 +36,10 @@ enum NativeHiDPIOverride {
             current == installed || current == original || current == previous
         }
     }
+    struct ResolutionPreference: Codable {
+        let original: Bool?
+        func accepts(_ current: Bool?) -> Bool { current == true || current == original }
+    }
     static func words(_ values: [UInt32]) -> Data {
         var result = Data()
         for value in values {
@@ -61,8 +65,12 @@ enum NativeHiDPIOverride {
         var resolutions = dictionary["scale-resolutions"] as? [Data] ?? []
         if dictionary["scale-resolutions"] != nil && dictionary["scale-resolutions"] as? [Data] == nil { throw Failure.invalid }
         for size in sizes {
-            let entry = words([UInt32(size.width * 2), UInt32(size.height * 2), 9, 0x00a00000])
-            if !resolutions.contains(entry) { resolutions.append(entry) }
+            let width = UInt32(size.width), height = UInt32(size.height)
+            // The HiDPI record and its two plain-size dependencies are a set.
+            // Do not add ValidForHiRes (0x00800000) to the mirror-valid flag.
+            let entries = [words([width * 2, height * 2, 9, 0x00200000]),
+                           words([width * 2, height * 2]), words([width, height])]
+            for entry in entries where !resolutions.contains(entry) { resolutions.append(entry) }
         }
         dictionary["scale-resolutions"] = resolutions
         return try PropertyListSerialization.data(fromPropertyList: dictionary, format: .xml, options: 0)

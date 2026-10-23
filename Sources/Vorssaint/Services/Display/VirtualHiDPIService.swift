@@ -233,7 +233,7 @@ final class VirtualHiDPIService: ObservableObject {
         }
         guard Self.allowsVirtualDisplay(profile) else {
             abortCreation(id, original: original, virtual: nil,
-                message: DisplayControlText.text("此連接尚未提供所選原生 HiDPI 模式。請準備原生縮放並重接螢幕；不會建立虛擬鏡像。", "The requested native HiDPI mode is unavailable. Prepare native scaling and reconnect; no virtual mirror was created."))
+                message: DisplayControlText.text("系統尚未提供所選原生 HiDPI 模式。若已準備並重接仍無效，請重新啟動 macOS 再試；不會建立虛擬鏡像。", "The requested native HiDPI mode is unavailable. If preparation and reconnect did not activate it, restart macOS and retry. No virtual mirror was created."))
             return
         }
         guard available else {

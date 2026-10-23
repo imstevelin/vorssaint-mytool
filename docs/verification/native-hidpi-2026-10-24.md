@@ -27,7 +27,7 @@
 
 - 初次 display-restoration：303 checks 通過。
 - 最終完整測試 **113419 checks** 通過，另含 AudioFeedbackBridge 14 checks、偏好清理、移除 Spaces 與 Developer 安裝隔離。涵蓋原生策略持久化、legacy 相容、明確鏡像選擇不被 native-first 覆蓋、mirror set 拒絕與 root receipt 已知狀態／第三方衝突政策。
-- 最終 Release 建置、selftest、strict deep codesign、Info.plist lint、NativeHiDPIHelper arm64／簽章檢查通過；CI 尚在執行。
+- 最終 Release 建置、selftest、strict deep codesign、Info.plist lint、NativeHiDPIHelper arm64／簽章檢查通過；提交 `201650f8` 的 Fork CI（40016198575）成功。此結果只涵蓋初版。
 - 實體新模式啟用、重接、睡醒與卡頓長時間驗收尚未完成。
 
 ## 本機系統覆寫準備
@@ -43,4 +43,21 @@
 - 舊 App、退出前／後偏好及自有 Application Support 保存於使用者 Backups／`20261024-035943-before-native-hidpi-6c8c6a04`。只移除 PA328QV 先前已確認的虛擬鏡像自動恢復 profile，避免混淆原生測試；其他偏好與退出後備份逐項完全相同，原 profile 另存。
 - 新 App 安裝後 selftest／strict deep codesign 通過。主程式 SHA-256 `e3b19e602ba19f370e266ec476603f38c9d745368639841780df1f1fbb1befa1`；NativeHiDPIHelper `25218408faf112730bd4c397741bfeef8b9a3b6d72d98ba4e9d7cbf99eb4bf74`，皆與 stage 一致。
 - 已在實際設定頁確認「原生縮放」選中、HiDPI 尚未啟用、準備／還原按鈕存在。此時 CoreGraphics 只有實體顯示器、mirror source 為 0、沒有 VirtualDisplayHost，仍為 2560×1440、1×、75Hz。
-- 已請使用者重新拔插訊號線以啟用覆寫；尚未收到完成結果。不得把目前 1× 狀態或設定頁存在描述為原生 HiDPI 已成功。
+- 使用者實際重新插拔後仍無法啟用。重新枚舉確認仍無 2560×1440、2×、75Hz，不能把目前 1× 狀態或設定頁存在描述為原生 HiDPI 已成功。
+
+
+## 重新插拔失敗後的修正
+
+- 確認初版只產生一筆 `[2w, 2h, 9, 0x00a00000]`，且系統 `DisplayResolutionEnabled` 不存在。這是實作缺口；尚不能判定哪個缺口是本機拒絕載入的充分原因。
+- 為避免完整商業 binary 分析超時，從已抽出的 arm64 主程式（SHA-256 `0da744d33ba99f98949c810de6e8d974d68739b30420f488c516b93b69ae428d`）依 Mach-O function starts 抽取 `0x10006eb28..<0x100072e34`，使用 REA raw-binary／arm64／Ghidra 局部反編譯。此片段的彈性縮放與自訂尺寸迴圈都建立三筆配套記錄：`[2w, 2h, 9, 0x00200000]`、`[2w, 2h]`、`[w, h]`。外部呼叫與片段外資料仍有未解析限制，不聲稱重建整套產品。
+- 新產生器採用此三筆 network-order 記錄。更新已受本工具管理的設定時，從 receipt 保存的原始覆寫重新建立，淘汰初版錯誤記錄；保留原始第三方資料與衝突保護。
+- root helper 以 CFPreferences 僅設定系統 `com.apple.windowserver` 的 `DisplayResolutionEnabled` 為 true。`resolution-preference.json` 保存原先 true／false／不存在狀態；最後一個本工具管理的型號還原時，才還原此共用開關。偵測到不屬於已知狀態的變更時拒絕覆蓋，不修改整份系統偏好檔。
+- 修正版 display-restoration 313 checks、Release 建置、selftest 與 strict deep codesign 通過；完整回歸、系統套用與模式啟用結果另記於下方。模式仍缺少時，錯誤訊息會說明重新啟動 macOS 的下一個驗證步驟，維持不自動退回虛擬鏡像。
+
+
+### 修正版交付驗證
+
+- 完整本機回歸 **113424 checks**，AudioFeedbackBridge 14 checks、偏好清理、移除 Spaces、Developer 安裝隔離皆通過。
+- 已備份後替換 `/Applications/實用小工具.app` 並啟動。備份為 `20261024-043902-before-native-record-correction`；替換前後偏好完全一致，安裝包 selftest 與 strict deep codesign 通過。
+- 安裝主程式 SHA-256 `f56d44c9ef18e47c69a948f48082cf2b47b8f8ff7c7c79304946d701417b918f`，NativeHiDPIHelper `f252632e8686e3b2cd71320b4f3dacf882568e7d98873e94ef8f129de8b21e51`，均與測試後 stage 相同。沿用候選版本 1.1.1 (12)，未建立 Release。
+- 系統修正的管理員授權與原生模式啟用尚待驗證；App 已安裝不代表系統覆寫已更新。實機卡頓改善仍待原生 HiDPI 成功啟用後長時間驗收。

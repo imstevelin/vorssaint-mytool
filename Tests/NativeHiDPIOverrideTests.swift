@@ -17,8 +17,20 @@ enum NativeHiDPIOverrideTests {
                 sizes: [.init(width: 2560, height: 1440), .init(width: 2560, height: 1440)], existing: existing)
             let plist = try PropertyListSerialization.propertyList(from: output, format: nil) as! [String: Any]
             let entries = plist["scale-resolutions"] as! [Data]
-            suite.expect(entries.count == 2 && entries[0] == Data([4, 5, 6]), "native preparation preserves existing modes and deduplicates additions")
-            suite.expect(entries.last == Data([0,0,0x14,0, 0,0,0x0b,0x40, 0,0,0,9, 0,0xa0,0,0]), "2560x1440 HiDPI is encoded as 5120x2880 network-order pixels with explicit flags")
+            suite.expect(entries.count == 4 && entries[0] == Data([4, 5, 6]), "native preparation preserves existing modes and deduplicates additions")
+            suite.expect(entries[1] == Data([0,0,0x14,0, 0,0,0x0b,0x40, 0,0,0,9, 0,0x20,0,0]), "2560x1440 HiDPI is encoded as 5120x2880 network-order pixels with explicit flags")
+            suite.expect(entries[2] == Data([0,0,0x14,0, 0,0,0x0b,0x40])
+                         && entries[3] == Data([0,0,0x0a,0, 0,0,0x05,0xa0]),
+                         "native HiDPI includes pixel-double and logical plain-mode dependencies")
+            for original in [nil, false, true] as [Bool?] {
+                let preference = NativeHiDPIOverride.ResolutionPreference(original: original)
+                let roundtrip = try JSONDecoder().decode(NativeHiDPIOverride.ResolutionPreference.self,
+                    from: JSONEncoder().encode(preference))
+                suite.expect(roundtrip.original == original && roundtrip.accepts(true) && roundtrip.accepts(original),
+                             "system scaling preference preserves absent, disabled and enabled baselines")
+            }
+            suite.expect(!NativeHiDPIOverride.ResolutionPreference(original: nil).accepts(false),
+                         "restore cannot overwrite an external system scaling preference change")
             suite.expect(plist["IODisplayEDID"] as? Data == edid && plist["DisplayPixelDimensions"] as? Data == Data([1, 2]), "native preparation preserves EDID and physical dimensions")
             suite.expect((plist["DisplayProductName"] as? [String: String])?["en_US"] == "Calibrated screen", "native preparation preserves installed model metadata")
             let twice = try NativeHiDPIOverride.configuration(identity: id, sizes: [.init(width: 2560, height: 1440)], existing: output)
