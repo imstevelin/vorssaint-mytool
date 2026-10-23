@@ -7,7 +7,8 @@ final class NativeHiDPIService: ObservableObject {
     @Published private(set) var busy = false
     @Published private(set) var message: String?
 
-    func prepare(_ id: CGDirectDisplayID, profile: VirtualHiDPIService.Profile) {
+    func prepare(_ id: CGDirectDisplayID, profile: VirtualHiDPIService.Profile,
+                 nativePanelSize: NativeHiDPIOverride.PanelSize? = nil) {
         guard !busy, CGDisplayIsOnline(id) != 0, CGDisplayIsBuiltin(id) == 0,
               VirtualHiDPIService.shared.sessions[id] == nil,
               CGDisplayMirrorsDisplay(id) == 0 else {
@@ -15,11 +16,14 @@ final class NativeHiDPIService: ObservableObject {
             return
         }
         let identity = NativeHiDPIOverride.Identity(vendor: CGDisplayVendorNumber(id), product: CGDisplayModelNumber(id))
-        guard identity.valid, NativeHiDPIOverride.Size(width: profile.width, height: profile.height).valid else {
+        guard identity.valid, NativeHiDPIOverride.Size(width: profile.width, height: profile.height).valid,
+              nativePanelSize?.valid != false else {
             message = DisplayControlText.text("此顯示器識別或尺寸不支援原生縮放。", "Native scaling is unavailable for this display identity or size.")
             return
         }
-        run(["--apply", String(identity.vendor), String(identity.product), String(profile.width), String(profile.height)],
+        var arguments = ["--apply", String(identity.vendor), String(identity.product), String(profile.width), String(profile.height)]
+        if let panel = nativePanelSize { arguments += [String(panel.width), String(panel.height)] }
+        run(arguments,
             prompt: DisplayControlText.text("準備實體螢幕的原生 HiDPI 模式（會保存原設定；相同型號螢幕共用）。", "Prepare native HiDPI for this display model, preserving its original override."))
     }
     func restore(_ id: CGDirectDisplayID) {

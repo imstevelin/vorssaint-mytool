@@ -15,6 +15,9 @@ struct DisplayHardwareControls: View {
     @State private var selectedRate: Double?
     @State private var details = false
     @State private var nativeOnly = true
+    @State private var correctNativePanel = false
+    @State private var panelWidth = ""
+    @State private var panelHeight = ""
 
     private var state: DisplayHardwareState? { hardware.hardwareControls[display.id] }
 
@@ -77,6 +80,7 @@ struct DisplayHardwareControls: View {
         let preset = hidpi.defaultProfile(for: display.id)
         width = String(preset.width); height = String(preset.height)
         selectedRate = nil // Never carry another monitor's explicit timing over.
+        correctNativePanel = false; panelWidth = ""; panelHeight = ""
         nativeOnly = hidpi.sessions[display.id].map { $0.virtualID == nil } ?? (preset.nativeOnly ?? true)
     }
 
@@ -131,10 +135,25 @@ struct DisplayHardwareControls: View {
             if nativeOnly, hidpi.sessions[display.id] == nil {
                 Text(DisplayControlText.text("直接使用實體螢幕；未提供所選模式時不會改用鏡像。", "Uses the physical display directly; unavailable modes do not fall back to mirroring."))
                     .font(.caption).foregroundStyle(.secondary)
+                DisclosureGroup(DisplayControlText.text("校正面板尺寸（進階）", "Correct panel dimensions (advanced)")) {
+                    Toggle(DisplayControlText.text("本次準備同時校正原生面板尺寸", "Include a native panel size correction"), isOn: $correctNativePanel)
+                        .toggleStyle(.checkbox)
+                    if correctNativePanel {
+                        HStack {
+                            TextField(DisplayControlText.text("面板寬度", "Panel width"), text: $panelWidth).frame(width: 90)
+                            Text("×")
+                            TextField(DisplayControlText.text("面板高度", "Panel height"), text: $panelHeight).frame(width: 90)
+                        }.textFieldStyle(.roundedBorder)
+                    }
+                    Text(DisplayControlText.text("只在系統誤認原生尺寸時填入廠商規格，與介面大小分開；既有校正會保留，還原原生設定可撤銷。", "Use the manufacturer's physical panel specification only when detection is wrong, independently of desktop size. Existing corrections are retained; Restore native configuration removes them."))
+                        .font(.caption).foregroundStyle(.secondary)
+                }.disabled(nativeHiDPI.busy)
                 HStack {
                     Button(DisplayControlText.text("準備原生縮放…", "Prepare native scaling…")) {
-                        nativeHiDPI.prepare(display.id, profile: selectedProfile)
+                        nativeHiDPI.prepare(display.id, profile: selectedProfile,
+                            nativePanelSize: correctNativePanel ? enteredPanelSize : nil)
                     }
+                    .disabled(correctNativePanel && !enteredPanelSize.valid)
                     Button(DisplayControlText.text("還原原生設定…", "Restore native configuration…")) {
                         nativeHiDPI.restore(display.id)
                     }
@@ -193,6 +212,10 @@ struct DisplayHardwareControls: View {
     }
 
     private var rate: Double { selectedRate ?? hidpi.defaultProfile(for: display.id).rate }
+
+    private var enteredPanelSize: NativeHiDPIOverride.PanelSize {
+        .init(width: Int(panelWidth) ?? 0, height: Int(panelHeight) ?? 0)
+    }
 
     private var selectedProfile: VirtualHiDPIService.Profile {
         .init(width: Int(width) ?? 0, height: Int(height) ?? 0, rate: rate, nativeOnly: nativeOnly)

@@ -32,12 +32,36 @@ enum NativeHiDPIOverrideTests {
             suite.expect(!NativeHiDPIOverride.ResolutionPreference(original: nil).accepts(false),
                          "restore cannot overwrite an external system scaling preference change")
             suite.expect(plist["IODisplayEDID"] as? Data == edid && plist["DisplayPixelDimensions"] as? Data == Data([1, 2]), "native preparation preserves EDID and physical dimensions")
+            let panel = NativeHiDPIOverride.PanelSize(width: 2560, height: 1440)
+            let corrected = try NativeHiDPIOverride.configuration(identity: id,
+                sizes: [.init(width: 2560, height: 1440)], existing: existing, nativePanelSize: panel)
+            let correctedPlist = try PropertyListSerialization.propertyList(from: corrected, format: nil) as! [String: Any]
+            suite.expect(correctedPlist["DisplayPixelDimensions"] as? Data == Data([0,0,0x0a,0, 0,0,0x05,0xa0]),
+                         "explicit native panel correction uses physical 2560x1440, never the 5120x2880 render buffer")
+            suite.expect(correctedPlist["IODisplayEDID"] as? Data == edid
+                         && correctedPlist["scale-resolutions"] as? [Data] == entries,
+                         "panel correction preserves EDID and independent scaled mode records")
+            let correctedReceipt = NativeHiDPIOverride.Receipt(original: existing, installed: corrected,
+                                                               previous: output, nativePanelSize: panel)
+            let roundtripReceipt = try JSONDecoder().decode(NativeHiDPIOverride.Receipt.self,
+                from: JSONEncoder().encode(correctedReceipt))
+            suite.expect(roundtripReceipt.nativePanelSize == panel && roundtripReceipt.original == existing,
+                         "explicit panel correction persists separately without changing the restoration baseline")
+            for invalidPanel in [NativeHiDPIOverride.PanelSize(width: -1, height: 1440),
+                                 .init(width: 2560, height: Int.max)] {
+                var rejectedPanel = false
+                do { _ = try NativeHiDPIOverride.configuration(identity: id,
+                    sizes: [.init(width: 2560, height: 1440)], existing: existing, nativePanelSize: invalidPanel) }
+                catch { rejectedPanel = true }
+                suite.expect(rejectedPanel, "invalid physical panel dimensions are rejected before encoding")
+            }
             suite.expect((plist["DisplayProductName"] as? [String: String])?["en_US"] == "Calibrated screen", "native preparation preserves installed model metadata")
             let twice = try NativeHiDPIOverride.configuration(identity: id, sizes: [.init(width: 2560, height: 1440)], existing: output)
             suite.expect(twice == output, "reapplying a prepared mode is idempotent")
             let receipt = NativeHiDPIOverride.Receipt(original: nil, installed: output, previous: nil)
             let decoded = try JSONDecoder().decode(NativeHiDPIOverride.Receipt.self, from: JSONEncoder().encode(receipt))
             suite.expect(decoded.original == nil && decoded.accepts(nil) && decoded.accepts(output), "receipt preserves original absence for exact removal on restore")
+            suite.expect(decoded.nativePanelSize == nil, "legacy receipts do not silently enable native panel correction")
             suite.expect(!decoded.accepts(Data([9])), "third-party override changes are rejected rather than overwritten")
             let updating = NativeHiDPIOverride.Receipt(original: existing, installed: twice, previous: output)
             suite.expect(updating.accepts(existing) && updating.accepts(output) && updating.accepts(twice), "interrupted updates retain known original and installed states")

@@ -69,3 +69,20 @@
 - 系統 `DisplayResolutionEnabled` 已讀回 true。型號 receipt 與共用開關 receipt 均保存原先不存在的狀態，可經還原功能回復。
 - 套用後再次枚舉：仍只有實體螢幕、無鏡像，當前 2560×1440、1×、75Hz；尚未提供所需的 2560×1440、2×、75Hz。下一個實機步驟是儲存工作後重新啟動 macOS，驗證重新載入設定後的模式；沒有自動重啟或結束 WindowServer。
 - 程式提交 `723aa032` 的 Fork CI（40020938965）仍在執行；系統設定寫入成功不代表模式已被接受或卡頓已修復。
+
+
+## 重新啟動後：面板原生尺寸偵測差異
+
+- 使用者完成重新啟動後，系統開關仍為 true，正式 App 從預期路徑執行，沒有 VirtualDisplayHost。目標 2560×1440、2×、75Hz 仍未提供，維持實體 2560×1440、1×、75Hz。
+- CoreDisplay_DisplayCreateInfoDictionary 已包含修正後三筆 scale-resolutions，證明覆寫已載入；不能再把缺少模式直接歸因於尚未重載。
+- AppleCLCD2 的 DisplayAttributes 回報 NativeFormatHorizontalPixels=1920、NativeFormatVerticalPixels=1080，而 [ASUS PA328QV 官方規格](https://www.asus.com/us/displays-desktops/monitors/proart/proart-display-pa328qv/techspec/) 為 2560×1440。[BetterDisplay 原生縮放指南](https://github.com/waydabber/BetterDisplay/wiki/Fully-scalable-HiDPI-desktop) 要求正確偵測面板原生尺寸，且在錯誤時提供獨立校正。這是已確認的偵測差異，是否造成此次模式上限仍待實機驗證。
+- REA 主程式局部分析中 DisplayPixelDimensions 分支以兩個 32-bit network-order 數值產生資料，與縮放模式產生器分開。新增明確選用的面板尺寸輸入，僅填實體廠商規格 2560×1440，不使用 5120×2880 backing 尺寸冒充面板、不改 EDID／ICC。
+- helper 保留原始覆寫作還原基線，receipt 可選 nativePanelSize 保存此獨立選擇；舊 receipt 預設 nil，重新準備不會遺失已明確選用的校正，還原仍回復原始檔案。
+- display-restoration 319 checks 通過，包含未選校正時保留原尺寸、明確校正使用實體尺寸、EDID／縮放紀錄不變、校正 receipt／回復基線與無效尺寸拒絕。完整建置、回歸與實機套用另行記錄。
+
+
+### 面板校正版本交付
+
+- 完整本機測試 **113430 checks**、AudioFeedbackBridge 14 checks、偏好清理／移除 Spaces／Developer 安裝隔離通過。Release 建置、selftest、strict deep codesign 通過。
+- 已備份後安裝至正式位置並啟動；備份 `20261024-045910-before-native-panel-correction`，替換前後偏好完全相同。主程式 SHA-256 `e92bdd8c85244ca081efc7316b6956bfb78d99d58aff01ad9bdf0e08e109b028`，helper `253540154a0fb4648c700a1c010843965ab59dbed2f2f53e976bc96298c9c360`，與 stage 一致。
+- 面板尺寸校正的系統管理員授權仍在等待；目前不能宣稱新的 DisplayPixelDimensions 已寫入或原生 HiDPI 已啟用。保留未鏡像的 1×、75Hz 現狀。新提交的 Fork CI、模式啟用與長時間卡頓驗收仍待確認。

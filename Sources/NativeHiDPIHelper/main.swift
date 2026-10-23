@@ -55,7 +55,7 @@ func setResolutionPreference(_ value: Bool?) throws {
 }
 do {
     let args = CommandLine.arguments
-    guard geteuid() == 0, (args.count == 4 || args.count == 6),
+    guard geteuid() == 0, (args.count == 4 || args.count == 6 || args.count == 8),
           let vendor = UInt32(args[2]), let product = UInt32(args[3]) else { throw NativeHiDPIOverride.Failure.invalid }
     let identity = NativeHiDPIOverride.Identity(vendor: vendor, product: product)
     guard identity.valid else { throw NativeHiDPIOverride.Failure.invalid }
@@ -78,20 +78,28 @@ do {
     }
     let current = try contents(target)
     let receipt = try contents(receiptURL).map { try JSONDecoder().decode(Receipt.self, from: $0) }
-    if args[1] == "--apply", args.count == 6, let width = Int(args[4]), let height = Int(args[5]) {
+    if args[1] == "--apply", (args.count == 6 || args.count == 8), let width = Int(args[4]), let height = Int(args[5]) {
         // An interrupted transaction may still have the original file. Both
         // known states are safe; an unrelated third-party edit is not.
         if let receipt, !receipt.accepts(current) { throw NativeHiDPIOverride.Failure.conflict }
         // Rebuild our additions from the original baseline, retiring the
         // incomplete first candidate's records without deleting external data.
         let baseline = receipt == nil ? current : receipt!.original
+        var panel = receipt?.nativePanelSize
+        if args.count == 8 {
+            guard let panelWidth = Int(args[6]), let panelHeight = Int(args[7]) else {
+                throw NativeHiDPIOverride.Failure.invalid
+            }
+            panel = .init(width: panelWidth, height: panelHeight)
+        }
         let installed = try NativeHiDPIOverride.configuration(identity: identity,
-            sizes: [.init(width: width, height: height)], existing: baseline)
+            sizes: [.init(width: width, height: height)], existing: baseline, nativePanelSize: panel)
         let preference = try resolutionPreference()
         let savedPreference = globalReceipt ?? .init(original: preference)
         guard savedPreference.accepts(preference) else { throw NativeHiDPIOverride.Failure.conflict }
         if globalReceipt == nil { try write(JSONEncoder().encode(savedPreference), globalURL) }
-        let next = Receipt(original: receipt == nil ? current : receipt!.original, installed: installed, previous: current)
+        let next = Receipt(original: receipt == nil ? current : receipt!.original, installed: installed,
+                           previous: current, nativePanelSize: panel)
         // Preserve the original before any system file change, including crash
         // recovery if the process exits between these two atomic writes.
         try write(JSONEncoder().encode(next), receiptURL)

@@ -18,6 +18,15 @@ enum NativeHiDPIOverride {
                 && width * height <= 9_437_184
         }
     }
+    /// The physical panel's manufacturer specification, independently supplied
+    /// from the desired scaled desktop size. Never infer it from that size.
+    struct PanelSize: Codable, Equatable {
+        let width: Int
+        let height: Int
+        var valid: Bool {
+            width >= 640 && height >= 480 && width <= 16384 && height <= 16384
+        }
+    }
     enum Failure: Error, LocalizedError {
         case invalid, conflict, unsafePath
         var errorDescription: String? {
@@ -32,6 +41,7 @@ enum NativeHiDPIOverride {
         let original: Data?
         let installed: Data
         let previous: Data?
+        var nativePanelSize: PanelSize? = nil
         func accepts(_ current: Data?) -> Bool {
             current == installed || current == original || current == previous
         }
@@ -48,8 +58,9 @@ enum NativeHiDPIOverride {
         }
         return result
     }
-    static func configuration(identity: Identity, sizes: [Size], existing: Data?) throws -> Data {
-        guard identity.valid, !sizes.isEmpty, sizes.count <= 32, sizes.allSatisfy(\.valid) else { throw Failure.invalid }
+    static func configuration(identity: Identity, sizes: [Size], existing: Data?, nativePanelSize: PanelSize? = nil) throws -> Data {
+        guard identity.valid, !sizes.isEmpty, sizes.count <= 32, sizes.allSatisfy(\.valid),
+              nativePanelSize?.valid != false else { throw Failure.invalid }
         var dictionary: [String: Any] = [:]
         if let existing {
             guard existing.count <= 4 * 1024 * 1024,
@@ -60,8 +71,11 @@ enum NativeHiDPIOverride {
         }
         dictionary["DisplayVendorID"] = identity.vendor
         dictionary["DisplayProductID"] = identity.product
+        if let panel = nativePanelSize {
+            dictionary["DisplayPixelDimensions"] = words([UInt32(panel.width), UInt32(panel.height)])
+        }
         // Preserve EDID, color metadata, native dimensions, names and all other
-        // installed model overrides. Request only additional scaled modes.
+        // installed model overrides unless panel correction was explicit.
         var resolutions = dictionary["scale-resolutions"] as? [Data] ?? []
         if dictionary["scale-resolutions"] != nil && dictionary["scale-resolutions"] as? [Data] == nil { throw Failure.invalid }
         for size in sizes {
