@@ -39,7 +39,18 @@ enum NotchVolumeFeedbackTests {
         }
     }
 
+    enum BrightnessOSD {
+        static var levels: [Double] = []
+        static func showVolume(displayID: UInt32, volume: Double, muted: Bool) {
+            levels.append(muted ? 0 : volume)
+        }
+    }
+
     class State {
+        var acceptsUserInteraction = true
+        var hiddenInFullscreen = false
+        var hiddenUntilHover = false
+        var displayID: UInt32? = 1
         var subscriptions = Set<AnyCancellable>()
         var volumeDeviceUID: String?
         var volumeBaseline: Double?
@@ -71,6 +82,32 @@ enum NotchVolumeFeedbackTests {
             suite.expect(delivered, "queued volume publications settle within the test deadline")
         }
         defer { AppVolumeMixer.shared = AppVolumeMixer() }
+        let fallbackKeys = [DefaultsKey.notchEnabled, DefaultsKey.notchVolume,
+                            AppFeature.notch.availabilityKey, AppFeature.mixer.availabilityKey]
+        let savedFallbackPreferences = fallbackKeys.map { UserDefaults.standard.object(forKey: $0) }
+        for key in fallbackKeys { UserDefaults.standard.set(true, forKey: key) }
+        let hidden = Service()
+        hidden.hiddenInFullscreen = true
+        hidden.showsSystemFeedback = false
+        BrightnessOSD.levels = []
+        suite.expect(hidden.showVolume(0.4) && hidden.showVolume(0.4, muted: true)
+                     && BrightnessOSD.levels == [0.4, 0] && hidden.presented.isEmpty,
+                     "fullscreen volume and mute use the shared central brightness card")
+        hidden.hiddenInFullscreen = false
+        hidden.hiddenUntilHover = true
+        suite.expect(hidden.showVolume(0.2) && BrightnessOSD.levels.last == 0.2,
+                     "hover-hidden island also retains volume feedback")
+        hidden.displayID = nil
+        suite.expect(!hidden.showVolume(0.8) && BrightnessOSD.levels.last == 0.2,
+                     "a missing target display does not claim a central card was shown")
+        hidden.displayID = 1
+        hidden.acceptsUserInteraction = false
+        suite.expect(!hidden.showVolume(0.9) && BrightnessOSD.levels.last == 0.2,
+                     "suspended or concealed island cannot present a fallback card")
+        for (key, previous) in zip(fallbackKeys, savedFallbackPreferences) {
+            if let previous { UserDefaults.standard.set(previous, forKey: key) }
+            else { UserDefaults.standard.removeObject(forKey: key) }
+        }
         let outputs: [(name: String, dataSource: String?, symbol: String)] = [
             ("MacBook Pro Speakers", nil, "speaker.wave.2.fill"),
             ("Built-in Output", "Headphones", "headphones"),

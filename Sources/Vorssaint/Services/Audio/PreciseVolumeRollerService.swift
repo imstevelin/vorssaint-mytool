@@ -25,7 +25,7 @@ final class PreciseVolumeRollerService: ObservableObject {
         VolumeFeedbackSound.shared.prepare(active: SessionActivity.shared.isActive)
         let wanted = BrightnessService.shared.hardwareAudioDisplayID != nil || (AppFeature.mixer.isAvailable
             && (UserDefaults.standard.bool(forKey: DefaultsKey.preciseVolumeRollerEnabled)
-                || (NotchSupport.routes(.volume) && NotchService.shared.acceptsSystemFeedback)))
+                || (NotchSupport.routes(.volume) && NotchService.shared.acceptsUserInteraction)))
         if SessionActivitySupport.tapShouldRun(featureWanted: wanted,
                                                accessibilityGranted: AXIsProcessTrusted(),
                                                sessionIsActive: SessionActivity.shared.isActive) {
@@ -184,8 +184,8 @@ final class PreciseVolumeRollerService: ObservableObject {
         let mixer = AppVolumeMixer.shared
         let action = notchKeyGate.handle(
             keyCode: code, state: state, isRepeat: nsEvent.data1 & 1 != 0,
-            enabled: NotchSupport.routes(.volume) && NotchService.shared.acceptsSystemFeedback,
-            acceptsNewPress: NotchService.shared.showsSystemFeedback,
+            enabled: NotchSupport.routes(.volume) && NotchService.shared.acceptsUserInteraction,
+            acceptsNewPress: NotchService.shared.acceptsUserInteraction,
             hasVolume: mixer.systemOutputVolume != nil, hasMute: mixer.systemOutputMuted != nil,
             option: event.flags.contains(.maskAlternate), shift: event.flags.contains(.maskShift),
             commandOrControl: event.flags.contains(.maskCommand) || event.flags.contains(.maskControl))
