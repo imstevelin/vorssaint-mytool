@@ -3,6 +3,53 @@ import Foundation
 
 enum NativeHiDPIOverrideTests {
     static func run(_ suite: TestSuite) {
+        let matrix = [(3840,2160,120.0), (3440,1440,144.0), (5120,1440,240.0),
+                      (1080,1920,75.0), (7680,4320,60.0), (2560,1440,360.0), (3840,2160,143.856)]
+        for (width,height,rate) in matrix {
+            suite.expect(NativeDisplayModes.validRequest(width: width, height: height, rate: rate)
+                         && NativeHiDPIOverride.Size(width: width, height: height).valid,
+                         "native request bounds support 4K, ultrawide, portrait, 8K and high-refresh configurations")
+        }
+        let publicOptions = [NativeDisplayModes.Option(width: 3840, height: 2160, rate: 59.94),
+                             .init(width: 3440, height: 1440, rate: 144)]
+        let merged = NativeDisplayModes.mergeOptions(publicModes: publicOptions, supplemental: [
+            .init(width: 3840, height: 2160, rate: 60), .init(width: 3840, height: 2160, rate: 120),
+            .init(width: 1080, height: 1920, rate: 75), .init(width: 2560, height: 1440, rate: .nan)])
+        suite.expect(merged.count == 4 && merged.contains(publicOptions[0])
+                     && !merged.contains(.init(width: 3840, height: 2160, rate: 60)),
+                     "capability merging retains fractional public timing and omits rounded duplicates and invalid entries")
+        let fitting = NativeDisplayModes.preferredOption(width: 5120, height: 1440, rate: 144, options: [
+            .init(width: 3840, height: 1080, rate: 144), .init(width: 2560, height: 1440, rate: 144),
+            .init(width: 5120, height: 1440, rate: 60)])
+        suite.expect(fitting == .init(width: 3840, height: 1080, rate: 144),
+                     "automatic native defaults retain aspect ratio and timing while fitting available hardware modes")
+        suite.expect(NativeDisplayModes.preferredOption(width: 3840, height: 2160, rate: 120, options: [
+            .init(width: 3840, height: 2160, rate: 60)]) == nil,
+                     "automatic defaults cannot silently lower refresh rate")
+        suite.expect(NativeDisplayModes.readbackRateMatches(actual: 119.88, requested: 120)
+                     && !NativeDisplayModes.readbackRateMatches(actual: 0, requested: 120)
+                     && !NativeDisplayModes.readbackRateMatches(actual: 60, requested: 120),
+                     "native rate verification accepts fractional timing but never treats unknown or reduced Hz as success")
+        var activation = NativeHiDPIActivation(uuid: "D99B128D-539F-865F-0857-D6964E3302DB",
+            vendor: 1715, product: 12994, width: 3840, height: 2160, rate: 120)
+        suite.expect(activation.valid && activation.next(modeAvailable: true) == .enable,
+                     "one-switch activation uses an available mode without an admin preparation step")
+        suite.expect(activation.matches(uuid: activation.uuid, vendor: 1715, product: 12994)
+                     && !activation.matches(uuid: UUID().uuidString, vendor: 1715, product: 12994)
+                     && !activation.matches(uuid: activation.uuid, vendor: 1715, product: 1),
+                     "a reused numeric display ID cannot retarget a pending request to another monitor")
+        suite.expect(activation.next(modeAvailable: false) == .prepare,
+                     "a missing native mode prepares from the same switch")
+        activation.prepared = true
+        suite.expect(activation.next(modeAvailable: false) == .waitForDisplay
+                     && activation.next(modeAvailable: true) == .enable,
+                     "prepared requests wait for activation without repeating admin setup and resume when available")
+        suite.expect((try? JSONDecoder().decode(NativeHiDPIActivation.self,
+            from: JSONEncoder().encode(activation))) == activation,
+                     "an explicit pending request survives restart without losing its display identity or setup stage")
+        activation.panel = .init(width: 3840, height: 2160); activation.prepared = false
+        suite.expect(activation.next(modeAvailable: true) == .prepare,
+                     "explicit panel correction is applied with the switch even when a mode already exists")
         // Real descriptor shape observed for the hidden PA328QV 75 Hz mode.
         // The index is ephemeral and must always come from fresh enumeration.
         var descriptor = [UInt8](repeating: 0, count: 0xd4)
@@ -86,7 +133,7 @@ enum NativeHiDPIOverrideTests {
             suite.expect(!decoded.accepts(Data([9])), "third-party override changes are rejected rather than overwritten")
             let updating = NativeHiDPIOverride.Receipt(original: existing, installed: twice, previous: output)
             suite.expect(updating.accepts(existing) && updating.accepts(output) && updating.accepts(twice), "interrupted updates retain known original and installed states")
-            for (vendor, product, width, height) in [(0, 1, 1920, 1080), (1, 65536, 1920, 1080), (1, 1, 4000, 2000), (1, 1, -1, 1080)] {
+            for (vendor, product, width, height) in [(0, 1, 1920, 1080), (1, 65536, 1920, 1080), (1, 1, 9000, 2000), (1, 1, -1, 1080)] {
                 var rejected = false
                 do { _ = try NativeHiDPIOverride.configuration(identity: .init(vendor: UInt32(vendor), product: UInt32(product)), sizes: [.init(width: width, height: height)], existing: nil) }
                 catch { rejected = true }

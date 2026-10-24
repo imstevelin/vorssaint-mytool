@@ -489,6 +489,7 @@ final class BrightnessService: ObservableObject {
         syncKeyboardBrightnessHotkeys()
         syncDisplayBrightnessHotkeys()
         VirtualHiDPIService.shared.syncWithPreferences()
+        NativeHiDPIService.shared.syncWithPreferences()
         AppVolumeMixer.shared.syncWithPreferences()
     }
 
@@ -610,6 +611,7 @@ final class BrightnessService: ObservableObject {
         stateLock.unlock()
         hardwareConfirmed = [:]
         hardwareControls = [:]
+        NativeHiDPIService.shared.suspend()
         VirtualHiDPIService.shared.stopAll()
         PreciseVolumeRollerService.shared.syncWithPreferences()
         ddcPendingSteps = [:]

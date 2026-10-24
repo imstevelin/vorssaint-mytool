@@ -300,7 +300,7 @@ def main():
           + "final class Service: Fixture {\n"
           + "".join(declaration(hidpi, prefix) for prefix in [
               "    static func recordPhysicalSize(", "    func presets(", "    func defaultProfile(",
-              "    func refreshRates(", "    static func valid(", "    static func stableVerificationCount(",
+              "    func defaultNativeProfile(", "    func nativePresets(", "    func refreshRates(", "    static func valid(", "    static func stableVerificationCount(",
               "    static func preferredRefreshRate(", "    static func refreshRateMatches(",
               "    static func allowsVirtualDisplay(", "    static func nativeConnectionAllowed(",
               "    static func shouldTryNative("])

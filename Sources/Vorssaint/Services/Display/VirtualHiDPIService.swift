@@ -18,7 +18,7 @@ final class VirtualHiDPIService: ObservableObject {
         ownershipLock.withLock {
             physicalSizes[id] = CGSize(width: width, height: height)
             // A zero refresh rate means unknown/variable, not a request for 0 Hz.
-            if rate.isFinite, rate >= 24, rate <= 240 { physicalRates[id] = rate }
+            if rate.isFinite, rate >= 1, rate <= 1000 { physicalRates[id] = rate }
         }
     }
     static func isOwnedDisplay(_ id: CGDirectDisplayID) -> Bool {
@@ -30,7 +30,7 @@ final class VirtualHiDPIService: ObservableObject {
     static func desktopDisplay(for id: CGDirectDisplayID) -> CGDirectDisplayID {
         ownershipLock.withLock { physicalByVirtual.first { $0.value == id }?.key ?? id }
     }
-    struct Profile: Codable, Equatable {
+    struct Profile: Codable, Equatable, Hashable {
         var width: Int
         var height: Int
         var rate: Double
@@ -48,6 +48,22 @@ final class VirtualHiDPIService: ObservableObject {
     @Published private(set) var confirmationDisplay: CGDirectDisplayID?
     @Published private(set) var secondsRemaining = 0
     @Published private(set) var failure: String?
+    @Published private(set) var nativeOptions: [CGDirectDisplayID: [NativeDisplayModes.Option]] = [:]
+    private var scanningNative = Set<CGDirectDisplayID>()
+    func refreshNativeOptions(for id: CGDirectDisplayID) {
+        guard switching == nil, !scanningNative.contains(id),
+              let uuid = DisplayRecoverySnapshot.uuid(id) else { return }
+        scanningNative.insert(id)
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            let options = NativeDisplayModes.options(for: id)
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.scanningNative.remove(id)
+                guard self.switching == nil, DisplayRecoverySnapshot.uuid(id) == uuid else { return }
+                self.nativeOptions[id] = options
+            }
+        }
+    }
     var available: Bool { VSDVirtualDisplayAvailable() }
     private var baseline: DisplayRecoverySnapshot?
     private var journal: DisplayRecoveryJournal?
@@ -124,10 +140,42 @@ final class VirtualHiDPIService: ObservableObject {
         return presets(for: id).first ?? Profile(width: 1920, height: 1080, rate: 60)
     }
 
-    func refreshRates(for id: CGDirectDisplayID) -> [Double] {
+    func defaultNativeProfile(for id: CGDirectDisplayID) -> Profile {
+        if let session = sessions[id] { return session.profile }
+        let size = Self.ownershipLock.withLock { Self.physicalSizes[id] } ?? CGSize(width: 1920, height: 1080)
+        let rate = Self.ownershipLock.withLock { Self.physicalRates[id] } ?? 60
+        if let available = NativeDisplayModes.preferredOption(width: Int(size.width), height: Int(size.height),
+            rate: rate, options: nativeOptions[id, default: []]) {
+            return Profile(width: available.width, height: available.height, rate: rate, nativeOnly: true)
+        }
+        return Profile(width: Int(size.width), height: Int(size.height),
+            rate: rate, nativeOnly: true)
+    }
+
+    func nativePresets(for id: CGDirectDisplayID) -> [Profile] {
+        let preferred = defaultNativeProfile(for: id)
+        var used = Set<String>()
+        return nativeOptions[id, default: []].sorted {
+            let left = abs($0.rate - preferred.rate), right = abs($1.rate - preferred.rate)
+            if $0.width == $1.width && $0.height == $1.height { return left < right }
+            if $0.width != $1.width { return $0.width > $1.width }
+            return $0.height > $1.height
+        }.compactMap {
+            guard used.insert("\($0.width)x\($0.height)").inserted else { return nil }
+            return Profile(width: $0.width, height: $0.height, rate: $0.rate, nativeOnly: true)
+        }
+    }
+
+    func refreshRates(for id: CGDirectDisplayID, width: Int? = nil, height: Int? = nil, nativeOnly: Bool = true) -> [Double] {
         // Include fractional and uncommon physical rates so the picker can
         // represent the default exactly, without rounding it to a fixed preset.
-        Array(Set([30.0, 50.0, 60.0, 75.0, 90.0, 120.0, 144.0, defaultProfile(for: id).rate])).sorted()
+        if nativeOnly {
+            let rates = nativeOptions[id, default: []].filter {
+                (width == nil || $0.width == width) && (height == nil || $0.height == height)
+            }.map(\.rate)
+            return Array(Set(rates.isEmpty ? [defaultNativeProfile(for: id).rate] : rates)).sorted()
+        }
+        return Array(Set([30.0, 50.0, 60.0, 75.0, 90.0, 120.0, 144.0, defaultProfile(for: id).rate])).sorted()
     }
 
     static func valid(width: Int, height: Int, rate: Double) -> Bool {
@@ -137,7 +185,7 @@ final class VirtualHiDPIService: ObservableObject {
 
     static func preferredRefreshRate(requested: Double, physical: Double?, cached: Double?) -> Double {
         for candidate in [physical, cached, requested] {
-            if let candidate, candidate.isFinite, candidate >= 24, candidate <= 240 { return candidate }
+            if let candidate, candidate.isFinite, candidate >= 1, candidate <= 1000 { return candidate }
         }
         return 60
     }
@@ -173,7 +221,9 @@ final class VirtualHiDPIService: ObservableObject {
               CGDisplayIsBuiltin(id) == 0, CGDisplayIsOnline(id) != 0,
               Self.nativeConnectionAllowed(profile, inMirrorSet: CGDisplayIsInMirrorSet(id) != 0),
               let uuid = DisplayRecoverySnapshot.uuid(id),
-              Self.valid(width: profile.width, height: profile.height, rate: profile.rate) else { return }
+              (profile.nativeOnly == true
+               ? NativeDisplayModes.validRequest(width: profile.width, height: profile.height, rate: profile.rate)
+               : Self.valid(width: profile.width, height: profile.height, rate: profile.rate)) else { return }
         retiringHosts.removeAll { !$0.isRunning }
         guard retiringHosts.isEmpty else {
             failure = DisplayControlText.text("HiDPI 正在完成清理，請稍後再試", "HiDPI cleanup is still finishing; try again shortly")
@@ -359,7 +409,9 @@ final class VirtualHiDPIService: ObservableObject {
         let state = VerificationState(
             modeMatches: mode.map { Self.matches($0, profile: session.profile) } == true,
             physicalRateMatches: physicalMode.map {
-                Self.refreshRateMatches(actual: $0.refreshRate, requested: session.profile.rate)
+                session.virtualID == nil
+                    ? NativeDisplayModes.readbackRateMatches(actual: $0.refreshRate, requested: session.profile.rate)
+                    : Self.refreshRateMatches(actual: $0.refreshRate, requested: session.profile.rate)
             } == true,
             mirrorMatches: session.virtualID == nil ? CGDisplayIsInMirrorSet(id) == 0 : CGDisplayMirrorsDisplay(id) == desktop,
             virtualColorMatches: expectedColor.map { DisplayColorProfile.matches($0, display: desktop) } == true,
@@ -596,6 +648,7 @@ final class VirtualHiDPIService: ObservableObject {
         }
         if sessions.isEmpty, baseline != nil { stopAll() }
         scheduleSavedProfiles()
+        for id in online where CGDisplayIsBuiltin(id) == 0 && !Self.isOwnedDisplay(id) { refreshNativeOptions(for: id) }
     }
 
     func syncWithPreferences() {

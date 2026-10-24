@@ -1,5 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import SwiftUI
+#if canImport(DisplayRecoverySupport)
+import DisplayRecoverySupport
+#endif
 
 /// One physical monitor card, shared by Settings and the menu panel.
 struct DisplayHardwareControls: View {
@@ -15,6 +18,8 @@ struct DisplayHardwareControls: View {
     @State private var selectedRate: Double?
     @State private var details = false
     @State private var nativeOnly = true
+    @State private var selectionEdited = false
+    @State private var advancedHiDPI = false
     @State private var correctNativePanel = false
     @State private var panelWidth = ""
     @State private var panelHeight = ""
@@ -73,15 +78,23 @@ struct DisplayHardwareControls: View {
                 audio.syncWithPreferences()
             }
             .onChange(of: display.id) { _, _ in resetHiDPISelection() }
+            .onChange(of: hidpi.nativeOptions[display.id]) { _, _ in
+                guard nativeOnly, !selectionEdited, hidpi.sessions[display.id] == nil,
+                      nativeHiDPI.pendingDisplays[display.id] == nil else { return }
+                let preset = hidpi.defaultNativeProfile(for: display.id)
+                width = String(preset.width); height = String(preset.height)
+            }
         }
     }
 
     private func resetHiDPISelection() {
-        let preset = hidpi.defaultProfile(for: display.id)
+        let preset = hidpi.defaultNativeProfile(for: display.id)
         width = String(preset.width); height = String(preset.height)
         selectedRate = nil // Never carry another monitor's explicit timing over.
+        selectionEdited = false
         correctNativePanel = false; panelWidth = ""; panelHeight = ""
-        nativeOnly = hidpi.sessions[display.id].map { $0.virtualID == nil } ?? (preset.nativeOnly ?? true)
+        nativeOnly = hidpi.sessions[display.id].map { $0.virtualID == nil } ?? true
+        hidpi.refreshNativeOptions(for: display.id)
     }
 
     private func toggleMute() {
@@ -111,60 +124,68 @@ struct DisplayHardwareControls: View {
         }
     }
 
+    private func activateSelected() {
+        if nativeOnly {
+            nativeHiDPI.activate(display.id, profile: selectedProfile,
+                preservePhysicalRate: selectedRate == nil,
+                panel: correctNativePanel ? enteredPanelSize : nil, useAvailableDefault: !selectionEdited)
+        } else {
+            hidpi.enable(display.id, profile: selectedProfile, preservePhysicalRate: selectedRate == nil)
+        }
+    }
+
+    private var selectedValid: Bool {
+        nativeOnly
+            ? NativeDisplayModes.validRequest(width: selectedProfile.width, height: selectedProfile.height, rate: rate)
+                && (!correctNativePanel || enteredPanelSize.valid)
+            : VirtualHiDPIService.valid(width: selectedProfile.width, height: selectedProfile.height, rate: rate)
+    }
+
+    private var selectionPresets: [VirtualHiDPIService.Profile] {
+        guard nativeOnly else { return hidpi.presets(for: display.id) }
+        var options = hidpi.nativePresets(for: display.id)
+        let current = hidpi.defaultNativeProfile(for: display.id)
+        if !options.contains(where: { $0.width == current.width && $0.height == current.height }) {
+            options.insert(current, at: 0)
+        }
+        return options
+    }
+
+    private var availableRates: [Double] {
+        hidpi.refreshRates(for: display.id, width: selectedProfile.width,
+                           height: selectedProfile.height, nativeOnly: nativeOnly)
+    }
+
     private var hiDPIControls: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Picker(DisplayControlText.text("HiDPI 方式", "HiDPI method"), selection: $nativeOnly) {
-                Text(DisplayControlText.text("原生縮放", "Native scaling")).tag(true)
-                Text(DisplayControlText.text("虛擬鏡像", "Virtual mirror")).tag(false)
-            }
-            .pickerStyle(.segmented)
-            .disabled(hidpi.sessions[display.id] != nil || hidpi.switching != nil || nativeHiDPI.busy)
             HStack {
-                Toggle("HiDPI", isOn: Binding(get: { hidpi.sessions[display.id] != nil }, set: { enabled in
-                    if enabled { hidpi.enable(display.id, profile: selectedProfile, preservePhysicalRate: selectedRate == nil) }
-                    else { hidpi.disable(display.id) }
-                }))
-                .toggleStyle(.switch)
-                .disabled(hidpi.switching != nil || hidpi.confirmationDisplay != nil || nativeHiDPI.busy)
+                Toggle("HiDPI", isOn: Binding(
+                    get: { hidpi.sessions[display.id] != nil || nativeHiDPI.pendingDisplays[display.id] != nil },
+                    set: { enabled in
+                        if enabled { activateSelected() }
+                        else {
+                            nativeHiDPI.cancel(display.id)
+                            if hidpi.sessions[display.id] != nil { hidpi.disable(display.id) }
+                        }
+                    }))
+                    .toggleStyle(.switch)
+                    .disabled(hidpi.switching != nil || hidpi.confirmationDisplay != nil || nativeHiDPI.busy
+                              || (hidpi.sessions[display.id] == nil && nativeHiDPI.pendingDisplays[display.id] == nil && !selectedValid))
                 Spacer()
                 if let session = hidpi.sessions[display.id] {
-                    Text("\(session.profile.width) × \(session.profile.height) · 2× · \(Int(session.profile.rate)) Hz")
+                    Text("\(session.profile.width) × \(session.profile.height) · 2× · \(session.profile.rate.formatted(.number.precision(.fractionLength(0...2)))) Hz")
+                        .font(.caption).foregroundStyle(.secondary)
+                } else if nativeHiDPI.pendingDisplays[display.id] != nil {
+                    Text(DisplayControlText.text("等待啟用", "Waiting to enable"))
                         .font(.caption).foregroundStyle(.secondary)
                 }
             }
-            if nativeOnly, hidpi.sessions[display.id] == nil {
-                Text(DisplayControlText.text("直接使用實體螢幕；未提供所選模式時不會改用鏡像。", "Uses the physical display directly; unavailable modes do not fall back to mirroring."))
-                    .font(.caption).foregroundStyle(.secondary)
-                DisclosureGroup(DisplayControlText.text("校正面板尺寸（進階）", "Correct panel dimensions (advanced)")) {
-                    Toggle(DisplayControlText.text("本次準備同時校正原生面板尺寸", "Include a native panel size correction"), isOn: $correctNativePanel)
-                        .toggleStyle(.checkbox)
-                    if correctNativePanel {
-                        HStack {
-                            TextField(DisplayControlText.text("面板寬度", "Panel width"), text: $panelWidth).frame(width: 90)
-                            Text("×")
-                            TextField(DisplayControlText.text("面板高度", "Panel height"), text: $panelHeight).frame(width: 90)
-                        }.textFieldStyle(.roundedBorder)
-                    }
-                    Text(DisplayControlText.text("只在系統誤認原生尺寸時填入廠商規格，與介面大小分開；既有校正會保留，還原原生設定可撤銷。", "Use the manufacturer's physical panel specification only when detection is wrong, independently of desktop size. Existing corrections are retained; Restore native configuration removes them."))
-                        .font(.caption).foregroundStyle(.secondary)
-                }.disabled(nativeHiDPI.busy)
-                HStack {
-                    Button(DisplayControlText.text("準備原生縮放…", "Prepare native scaling…")) {
-                        nativeHiDPI.prepare(display.id, profile: selectedProfile,
-                            nativePanelSize: correctNativePanel ? enteredPanelSize : nil)
-                    }
-                    .disabled(correctNativePanel && !enteredPanelSize.valid)
-                    Button(DisplayControlText.text("還原原生設定…", "Restore native configuration…")) {
-                        nativeHiDPI.restore(display.id)
-                    }
-                }.disabled(nativeHiDPI.busy || hidpi.switching != nil || hidpi.confirmationDisplay != nil)
-                Text(DisplayControlText.text("準備會備份並加入此型號的縮放模式，相同型號螢幕共用；需管理員授權，並重接螢幕或重新啟動後生效。", "Preparation backs up and adds scaled modes for this display model, shared by matching monitors. Administrator authorization and reconnect or restart are required."))
-                    .font(.caption).foregroundStyle(.secondary)
-            }
+            Text(DisplayControlText.text(nativeOnly ? "原生縮放" : "虛擬鏡像", nativeOnly ? "Native scaling" : "Virtual mirror"))
+                .font(.caption).foregroundStyle(.secondary)
             if let message = nativeHiDPI.message {
                 Text(message).font(.caption).foregroundStyle(.secondary)
             }
-            if hidpi.switching == display.id {
+            if hidpi.switching == display.id || (nativeHiDPI.busy && nativeHiDPI.pendingDisplays[display.id] != nil) {
                 HStack { ProgressView().controlSize(.small); Text(DisplayControlText.preparing) }
             }
             if hidpi.confirmationDisplay == display.id {
@@ -174,44 +195,71 @@ struct DisplayHardwareControls: View {
                     Button(DisplayControlText.restore) { hidpi.disable(display.id) }
                 }
             }
-            if hidpi.sessions[display.id] == nil {
-                DisclosureGroup(DisplayControlText.custom, isExpanded: $details) {
+            if hidpi.sessions[display.id] == nil && nativeHiDPI.pendingDisplays[display.id] == nil {
+                DisclosureGroup(DisplayControlText.text("解析度與更新率", "Resolution and refresh rate"), isExpanded: $details) {
                     VStack(alignment: .leading, spacing: 8) {
                         Menu("\(width) × \(height)") {
-                            ForEach(hidpi.presets(for: display.id), id: \.width) { profile in
+                            ForEach(selectionPresets, id: \.self) { profile in
                                 Button("\(profile.width) × \(profile.height)") {
                                     width = String(profile.width); height = String(profile.height)
+                                    selectedRate = profile.rate; selectionEdited = true
                                 }
                             }
                         }.fixedSize()
                         HStack {
-                            TextField("Width", text: $width).frame(width: 70)
+                            TextField(DisplayControlText.text("寬度", "Width"), text: Binding(
+                                get: { width }, set: { width = $0; selectionEdited = true })).frame(width: 70)
                             Text("×")
-                            TextField("Height", text: $height).frame(width: 70)
-                            Picker("Hz", selection: Binding(get: { rate }, set: { selectedRate = $0 })) {
-                                ForEach(hidpi.refreshRates(for: display.id), id: \.self) { value in
+                            TextField(DisplayControlText.text("高度", "Height"), text: Binding(
+                                get: { height }, set: { height = $0; selectionEdited = true })).frame(width: 70)
+                            Picker("Hz", selection: Binding(get: { rate }, set: { selectedRate = $0; selectionEdited = true })) {
+                                if !availableRates.contains(rate) {
+                                    Text("\(rate.formatted(.number.precision(.fractionLength(0...2)))) Hz · \(DisplayControlText.text("目前", "current"))").tag(rate)
+                                }
+                                ForEach(availableRates, id: \.self) { value in
                                     Text("\(value.formatted(.number.precision(.fractionLength(0...2)))) Hz").tag(value)
                                 }
-                            }.frame(width: 100)
-                            Button(DisplayControlText.apply) { hidpi.enable(display.id, profile: selectedProfile, preservePhysicalRate: selectedRate == nil) }
-                                .disabled(!VirtualHiDPIService.valid(width: selectedProfile.width, height: selectedProfile.height,
-                                                                     rate: selectedProfile.rate)
-                                          || hidpi.switching != nil || hidpi.confirmationDisplay != nil)
-                        }
-                        .textFieldStyle(.roundedBorder)
+                            }.frame(width: 150)
+                            Button(DisplayControlText.apply) { activateSelected() }
+                                .disabled(!selectedValid || hidpi.switching != nil || hidpi.confirmationDisplay != nil || nativeHiDPI.busy)
+                        }.textFieldStyle(.roundedBorder)
+                        Text(DisplayControlText.text("選單依此螢幕提供的模式列出；手動尺寸仍須由 macOS 與硬體接受。", "Menus reflect this display's modes; custom sizes still require macOS and hardware support."))
+                            .font(.caption).foregroundStyle(.secondary)
                     }.padding(.top, 8)
                 }
             }
+            DisclosureGroup(DisplayControlText.text("進階顯示選項", "Advanced display options"), isExpanded: $advancedHiDPI) {
+                Picker(DisplayControlText.text("HiDPI 方式", "HiDPI method"), selection: $nativeOnly) {
+                    Text(DisplayControlText.text("原生縮放（預設）", "Native scaling (default)")).tag(true)
+                    Text(DisplayControlText.text("虛擬鏡像（相容性）", "Virtual mirror (compatibility)")).tag(false)
+                }
+                .disabled(hidpi.sessions[display.id] != nil || nativeHiDPI.pendingDisplays[display.id] != nil
+                          || hidpi.switching != nil || nativeHiDPI.busy)
+                if nativeOnly, hidpi.sessions[display.id] == nil {
+                    Toggle(DisplayControlText.text("校正原生面板尺寸", "Correct native panel dimensions"), isOn: $correctNativePanel)
+                        .toggleStyle(.checkbox)
+                    if correctNativePanel {
+                        HStack {
+                            TextField(DisplayControlText.text("面板寬度", "Panel width"), text: $panelWidth).frame(width: 90)
+                            Text("×")
+                            TextField(DisplayControlText.text("面板高度", "Panel height"), text: $panelHeight).frame(width: 90)
+                        }.textFieldStyle(.roundedBorder)
+                    }
+                    Text(DisplayControlText.text("僅在偵測錯誤時填入廠商的實體面板尺寸；下一次開啟 HiDPI 時一併套用。", "Enter the manufacturer's physical panel dimensions only when detection is wrong; applied the next time HiDPI is enabled."))
+                        .font(.caption).foregroundStyle(.secondary)
+                    Button(DisplayControlText.text("還原此型號系統設定…", "Restore this model's system configuration…")) {
+                        nativeHiDPI.restore(display.id)
+                    }.disabled(nativeHiDPI.busy || hidpi.switching != nil || hidpi.confirmationDisplay != nil)
+                }
+            }.disabled(nativeHiDPI.busy)
             if let failure = hidpi.failure {
                 Text(failure).font(.caption).foregroundStyle(.orange)
-                if hidpi.hasPendingRecovery {
-                    Button(DisplayControlText.restore) { hidpi.stopAll() }
-                }
+                if hidpi.hasPendingRecovery { Button(DisplayControlText.restore) { hidpi.stopAll() } }
             }
         }
     }
 
-    private var rate: Double { selectedRate ?? hidpi.defaultProfile(for: display.id).rate }
+    private var rate: Double { selectedRate ?? hidpi.defaultNativeProfile(for: display.id).rate }
 
     private var enteredPanelSize: NativeHiDPIOverride.PanelSize {
         .init(width: Int(panelWidth) ?? 0, height: Int(panelHeight) ?? 0)

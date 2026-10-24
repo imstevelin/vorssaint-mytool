@@ -10,6 +10,7 @@ enum HiDPIRefreshRateTests {
         static var physicalRates: [UInt32: Double] = [:]
         struct Session { let profile: Profile }
         var sessions: [UInt32: Session] = [:]
+        var nativeOptions: [UInt32: [NativeDisplayModes.Option]] = [:]
     }
     static func run(_ suite: TestSuite) {
         let native = Profile(width: 2560, height: 1440, rate: 75, nativeOnly: true)
@@ -86,6 +87,22 @@ enum HiDPIRefreshRateTests {
         suite.expect(verified.valid && verified.failures.isEmpty && !verified.shouldReapplyMode,
                      "all original verification requirements must pass")
         let service = Service()
+        service.nativeOptions[7] = [.init(width: 3840, height: 2160, rate: 59.94),
+                                    .init(width: 3840, height: 2160, rate: 120),
+                                    .init(width: 2560, height: 1440, rate: 360)]
+        service.nativeOptions[8] = [.init(width: 3440, height: 1440, rate: 144)]
+        suite.expect(service.refreshRates(for: 7, width: 3840, height: 2160) == [59.94, 120]
+                     && service.refreshRates(for: 7, width: 2560, height: 1440) == [360]
+                     && service.refreshRates(for: 8, width: 3440, height: 1440) == [144],
+                     "native rate menus are scoped to both display identity and resolution")
+        suite.expect(service.nativePresets(for: 7).count == 2,
+                     "native resolution choices collapse rate variants without discarding separate dimensions")
+        Service.recordPhysicalSize(7, width: 3840, height: 2160, rate: 120)
+        suite.expect(service.defaultNativeProfile(for: 7) == Profile(width: 3840, height: 2160, rate: 120, nativeOnly: true),
+                     "new displays default to native scaling at their own size and timing")
+        suite.expect(!Service.valid(width: 3840, height: 2160, rate: 360)
+                     && NativeDisplayModes.validRequest(width: 3840, height: 2160, rate: 360),
+                     "native high-refresh support does not bypass the virtual-host limits")
         for rate in [60.0, 75, 120, 144, 59.94, 74.97, 165] {
             Service.recordPhysicalSize(2, width: 2560, height: 1440, rate: rate)
             suite.expect(service.presets(for: 2).allSatisfy { $0.rate == rate },
@@ -99,7 +116,7 @@ enum HiDPIRefreshRateTests {
         Service.recordPhysicalSize(4, width: 2560, height: 1440, rate: 144)
         suite.expect(service.defaultProfile(for: 3).rate == 75 && service.defaultProfile(for: 4).rate == 144,
                      "each monitor retains its own rate")
-        for unknown in [0.0, Double.nan, Double.infinity, 500, -1] {
+        for unknown in [0.0, Double.nan, Double.infinity, 1001, -1] {
             Service.recordPhysicalSize(3, width: 1920, height: 1080, rate: unknown)
             suite.expect(service.defaultProfile(for: 3).rate == 75,
                          "unknown or invalid rates never overwrite the last physical rate")

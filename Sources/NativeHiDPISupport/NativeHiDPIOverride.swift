@@ -14,8 +14,7 @@ enum NativeHiDPIOverride {
         let width: Int
         let height: Int
         var valid: Bool {
-            width >= 640 && height >= 480 && width <= 3072 && height <= 3072
-                && width * height <= 9_437_184
+            width >= 320 && height >= 200 && width <= 8192 && height <= 8192
         }
     }
     /// The physical panel's manufacturer specification, independently supplied

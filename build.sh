@@ -581,7 +581,7 @@ if (( TEST )); then
         Sources/Vorssaint/Core/SecureInputSupport.swift
         Sources/VirtualDisplayHost/VirtualDisplayCursorRefresh.swift
         Sources/VirtualDisplayHost/VirtualDisplayCursorHistory.swift
-        Sources/NativeHiDPISupport/NativeHiDPIOverride.swift
+        Sources/NativeHiDPISupport/*.swift
         Sources/DisplayRecoverySupport/NativeDisplayModes.swift
         Tests/*.swift
         build/generated-tests/*.swift
