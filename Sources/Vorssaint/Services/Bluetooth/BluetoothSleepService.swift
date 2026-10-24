@@ -266,54 +266,6 @@ final class BluetoothAudioRecoveryService {
         }
     }
 
-    enum ManualRecoveryResult {
-        case restartRequested, unavailable, coolingDown, authorizationRequired, failed
-    }
-
-    /// Explicit recovery for a control link that stops responding after connection.
-    /// A successful HAL scalar write cannot tell us whether the speaker changed
-    /// acoustic gain, so this must remain a user action rather than a volume heuristic.
-    func recoverCurrentOutput(completion: @escaping (ManualRecoveryResult) -> Void) {
-        let defaults = UserDefaults.standard
-        guard AppFeature.soundOutputSwitcher.isAvailable, !authorizationInFlight,
-              let uid = Self.defaultBluetoothOutputUID(), Self.selectedDevices[uid] != nil else {
-            completion(.unavailable); return
-        }
-        let previous = defaults.double(forKey: DefaultsKey.bluetoothAudioRecoveryLastAttempt)
-        guard BluetoothAudioRecoveryPolicy.permitsManualRecovery(uid: uid,
-            selectedUIDs: Set(Self.selectedDevices.keys), now: Date(),
-            previousAttempt: previous > 0 ? Date(timeIntervalSince1970: previous) : nil) else {
-            completion(.coolingDown); return
-        }
-        authorizationInFlight = true
-        DispatchQueue.global(qos: .utility).async { [weak self] in
-            let configured = Self.isConfigured
-            DispatchQueue.main.async { [weak self] in
-                guard let self else { return }
-                guard configured else {
-                    self.authorizationInFlight = false
-                    completion(.authorizationRequired); return
-                }
-                // Revalidate after the authorization check; a route change must
-                // never restart Bluetooth on behalf of an unrelated output.
-                guard AppFeature.soundOutputSwitcher.isAvailable,
-                      Self.defaultBluetoothOutputUID() == uid, Self.selectedDevices[uid] != nil else {
-                    self.authorizationInFlight = false
-                    completion(.unavailable); return
-                }
-                defaults.set(Date().timeIntervalSince1970, forKey: DefaultsKey.bluetoothAudioRecoveryLastAttempt)
-                defaults.set(uid, forKey: DefaultsKey.bluetoothAudioRecoveryAwaitingReconnectUID)
-                DispatchQueue.global(qos: .utility).async {
-                    let result = Shell.run("/usr/bin/sudo", Self.command, timeout: 10)
-                    DispatchQueue.main.async {
-                        self.authorizationInFlight = false
-                        completion(result.status == 0 ? .restartRequested : .failed)
-                    }
-                }
-            }
-        }
-    }
-
     /// Names are labels only. Matching always uses the exact Core Audio UID.
     static var selectedDevices: [String: String] {
         let raw = UserDefaults.standard.dictionary(forKey: DefaultsKey.bluetoothAudioRecoveryDevices) ?? [:]
