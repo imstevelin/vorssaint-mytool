@@ -296,11 +296,14 @@ def main():
           + declaration(hidpi, "    struct Profile:")
           + declaration(hidpi, "    struct ReconnectSignature:")
           + declaration(hidpi, "    struct ReconnectGate {")
+          + declaration(hidpi, "    struct VerificationState {")
           + "final class Service: Fixture {\n"
           + "".join(declaration(hidpi, prefix) for prefix in [
               "    static func recordPhysicalSize(", "    func presets(", "    func defaultProfile(",
-              "    func refreshRates(", "    static func valid(", "    static func stableVerificationCount(",
-              "    static func preferredRefreshRate(", "    static func refreshRateMatches("])
+              "    func defaultNativeProfile(", "    func nativePresets(", "    func refreshRates(", "    static func valid(", "    static func stableVerificationCount(",
+              "    static func preferredRefreshRate(", "    static func refreshRateMatches(",
+              "    static func allowsVirtualDisplay(", "    static func nativeConnectionAllowed(",
+              "    static func shouldTryNative("])
           + "}\n}\n")
     write("BrightnessStep.swift", "import CoreGraphics\nimport Foundation\nimport os\n"
           + "extension BrightnessStepTests {\n"

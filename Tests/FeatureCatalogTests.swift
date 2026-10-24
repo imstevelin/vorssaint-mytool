@@ -2466,6 +2466,9 @@ enum FeatureCatalogTests {
                 && BrightnessSupport.shouldProbeDDC(
                     pathKey: nil, writeOnlyPaths: [ddcPath!]),
                "only the same physical display path skips future DDC probes")
+        suite.expect(BrightnessSupport.shouldProbeDDC(
+            pathKey: ddcPath, writeOnlyPaths: [ddcPath!], revalidate: true),
+               "launch, reconnect and wake revalidate a cached write-only channel")
         suite.expect(!SettingsBackupSupport.exportKeys().contains(
             DefaultsKey.brightnessDDCWriteOnlyPaths),
                "per-monitor DDC capability never travels in a settings backup")

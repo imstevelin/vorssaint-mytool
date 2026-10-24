@@ -82,7 +82,12 @@ public struct DisplayRecoverySnapshot: Codable {
             let mode = modes.first { $0.ioDisplayModeID == screen.modeID && matches($0) }
                 ?? modes.first(where: matches)
             if let mode { valid = CGConfigureDisplayWithDisplayMode(config, id, mode, nil) == .success && valid }
-            else { valid = false }
+            else if let legacy = NativeDisplayModes.modes(for: id).first(where: {
+                $0.matches(width: screen.width, height: screen.height, pixelWidth: screen.pixelWidth,
+                           pixelHeight: screen.pixelHeight, rate: screen.refreshRate)
+            }) {
+                valid = NativeDisplayModes.configure(legacy, display: id, config: config) && valid
+            } else { valid = false }
             valid = CGConfigureDisplayOrigin(config, id, screen.x, screen.y) == .success && valid
         }
         guard valid else { CGCancelDisplayConfiguration(config); return false }

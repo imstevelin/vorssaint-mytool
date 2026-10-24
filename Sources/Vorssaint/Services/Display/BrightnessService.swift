@@ -489,6 +489,7 @@ final class BrightnessService: ObservableObject {
         syncKeyboardBrightnessHotkeys()
         syncDisplayBrightnessHotkeys()
         VirtualHiDPIService.shared.syncWithPreferences()
+        NativeHiDPIService.shared.syncWithPreferences()
         AppVolumeMixer.shared.syncWithPreferences()
     }
 
@@ -610,6 +611,7 @@ final class BrightnessService: ObservableObject {
         stateLock.unlock()
         hardwareConfirmed = [:]
         hardwareControls = [:]
+        NativeHiDPIService.shared.suspend()
         VirtualHiDPIService.shared.stopAll()
         PreciseVolumeRollerService.shared.syncWithPreferences()
         ddcPendingSteps = [:]
@@ -660,7 +662,7 @@ final class BrightnessService: ObservableObject {
         let screenNames = Self.localizedScreenNames()
         workQueue.async { [weak self] in
             self?.rebuild(generation: generation, previousDisplays: previousDisplays,
-                          screenNames: screenNames)
+                          screenNames: screenNames, revalidateDDC: force)
         }
     }
 
@@ -1554,7 +1556,9 @@ final class BrightnessService: ObservableObject {
                                                             window: Self.levelTrustWindow)
         // Gamma dimming is this app's own doing, so the remembered value is
         // the truth by construction and there is nothing to ask.
-        guard method == .ddc, let route, route.ddcReadable, !fresh,
+        // Even a previously write-only route gets another read after an idle
+        // pause: transient failures must not anchor all future keys to a seed.
+        guard method == .ddc, let route, !fresh,
               (!route.extendedDimming || (cached ?? 1) >= BrightnessSupport.extendedDimmingRange),
               let service = route.service else {
             guard let current = cached else { return }
@@ -1583,6 +1587,10 @@ final class BrightnessService: ObservableObject {
                 if self.routes[displayID]?.ddcPathKey == route.ddcPathKey,
                    self.routes[displayID]?.extendedDimming == route.extendedDimming {
                     self.routes[displayID]?.lastDDCValue = value
+                    self.routes[displayID]?.ddcReadable = true
+                    if case let .replied(_, maximum) = probe {
+                        self.routes[displayID]?.maximum = BrightnessSupport.sanitizedMaximum(maximum)
+                    }
                 }
                 self.stateLock.unlock()
                 self.forgetWriteOnlyDDCPath(route.ddcPathKey)
@@ -1596,7 +1604,7 @@ final class BrightnessService: ObservableObject {
                     self.routes[displayID]?.lastDDCValue = nil
                 }
                 self.stateLock.unlock()
-                Self.log.log("ddc reads stopped answering for display \(displayID); future steps will write only")
+                Self.log.log("ddc reads stopped answering for display \(displayID); keeping the fallback until the next idle-step probe")
             }
             DispatchQueue.main.async {
                 let queued = self.ddcPendingSteps.removeValue(forKey: displayID) ?? 0
@@ -1621,6 +1629,15 @@ final class BrightnessService: ObservableObject {
                     current = level
                     if let index = self.displays.firstIndex(where: { $0.id == displayID }) {
                         self.displays[index].brightness = level
+                    }
+                }
+                // The discovery placeholder (50%) is not a measured level.
+                // With neither a read nor a user-set level, a relative key
+                // must not suddenly write that arbitrary brightness.
+                if !superseded, known == nil {
+                    if case .replied = probe {} else {
+                        Self.log.error("display \(displayID) has no brightness baseline; relative step skipped")
+                        current = nil
                     }
                 }
                 guard let current else { return }
@@ -1925,7 +1942,7 @@ final class BrightnessService: ObservableObject {
     // MARK: - Rebuild (work queue)
 
     private func rebuild(generation: Int, previousDisplays: [BrightnessDisplay],
-                         screenNames: [CGDirectDisplayID: String]) {
+                         screenNames: [CGDirectDisplayID: String], revalidateDDC: Bool) {
         var ids = [CGDirectDisplayID](repeating: 0, count: 16)
         var count: UInt32 = 0
         CGGetOnlineDisplayList(16, &ids, &count)
@@ -2120,8 +2137,16 @@ final class BrightnessService: ObservableObject {
                     softwarePathKeys[id] = pathKey
                     continue
                 }
+                // A failed read during negotiation is not a permanent monitor
+                // capability. Revalidate on launch, reconnect and forced wake /
+                // HiDPI rebuilds, even when the physical ID was reused.
+                stateLock.lock()
+                let sameConnection = previousTopology.contains(id)
+                    && routes[id]?.ddcPathKey == pathKey
+                stateLock.unlock()
                 let rememberedWriteOnly = !BrightnessSupport.shouldProbeDDC(
-                    pathKey: pathKey, writeOnlyPaths: writeOnlyDDCPaths())
+                    pathKey: pathKey, writeOnlyPaths: writeOnlyDDCPaths(),
+                    revalidate: revalidateDDC || !sameConnection)
                 let probe: DDCProbe
                 if rememberedWriteOnly {
                     probe = .writeOnly
