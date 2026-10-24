@@ -18,9 +18,10 @@
 
 ## 驗證
 
-- `./build.sh --test`：113,367 checks 通過；原生 AudioFeedbackBridge 14 checks、設定清除、移除 Spaces、Developer 安裝隔離亦通過。
-- 其中 notch 66,624 checks、app-management 423 checks；包含全螢幕啟動／進出保留音量 tap、隱藏島中央音量及靜音卡片、暫停時不顯示卡片、指定裝置／冷卻期與時鐘倒退的手動修復限制。
-- 首次 notch suite 的 3 個新增案例未啟用音量路由偏好而失敗；補齊並還原測試偏好後，完整測試通過，未放寬產品斷言。
+- `./build.sh --test`：113,368 checks 通過；原生 AudioFeedbackBridge 14 checks、設定清除、移除 Spaces、Developer 安裝隔離亦通過。
+- 其中 notch 66,625 checks、app-management 423 checks；包含全螢幕啟動／進出保留音量 tap、隱藏島中央音量及靜音卡片、暫停時不顯示卡片、指定裝置／冷卻期與時鐘倒退的手動修復限制。
+- 首次 notch suite 的 3 個新增案例未啟用音量路由偏好而失敗；補齊並還原測試偏好後，完整測試通過，未放寬產品斷言。正式編譯另抓到顯示器 ID 為可選型別，已加上目標存在檢查，讓測試替身也使用可選型別並新增缺少顯示器案例；重新執行完整測試通過。
+- `./build.sh`、`./build/VorssaintImstevelin --selftest`（SELFTEST OK）及 `codesign --verify --deep --strict` 全部通過。
 - 尚未實機驗證全螢幕硬體鍵、喇叭故障當下的補救效果、多螢幕 Spaces 或重連後實際音量。未在本機觸發 bluetoothd 重啟，未替換正式 App。
 
 本批從乾淨最新 origin/main 建立獨立功能分支；未混入 PR #7 的原生 HiDPI 候選。已執行上游只讀評估；本輪為兩項明確音量問題的修補，不擴大為官方同步。
