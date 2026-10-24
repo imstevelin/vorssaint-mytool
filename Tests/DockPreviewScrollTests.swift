@@ -160,14 +160,26 @@ enum DockPreviewScrollTests {
                     return
                 }
                 action()
-                settle()
-                let clip = scroll.contentView.bounds
                 let start = DockPreviewSupport.panelPadding
                     + CGFloat(expectedIndex) * (extent + DockPreviewSupport.cardSpacing)
+                // SwiftUI schedules the animated scroll asynchronously. A
+                // fixed 250 ms can expire before the final frame on a busy
+                // runner; wait for the selected card's actual visible bounds.
+                var actionDrained = false
+                DispatchQueue.main.async { actionDrained = true }
+                let deadline = Date().addingTimeInterval(2)
+                repeat {
+                    hosting.layoutSubtreeIfNeeded()
+                    let bounds = scroll.contentView.bounds
+                    if actionDrained, model.selectedWindowID == model.windows[expectedIndex].windowID,
+                       start >= bounds.minX - 0.5, start + extent <= bounds.maxX + 0.5 { break }
+                    RunLoop.current.run(until: min(deadline, Date().addingTimeInterval(0.01)))
+                } while Date() < deadline
+                let clip = scroll.contentView.bounds
                 suite.expect(model.selectedWindowID == model.windows[expectedIndex].windowID,
                              "\(name): navigation selects window \(expectedIndex + 1)")
                 suite.expect(start >= clip.minX - 0.5 && start + extent <= clip.maxX + 0.5,
-                             "\(name): navigation reveals window \(expectedIndex + 1), including wraparound")
+                             "\(name): navigation reveals window \(expectedIndex + 1), including wraparound; expected \(start)...\(start + extent), visible \(clip.minX)...\(clip.maxX)")
             }
             model.preview(model.windows[0])
             settle()

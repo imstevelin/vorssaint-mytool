@@ -28,8 +28,9 @@ enum NotchVolumeRoutingTests {
     }
     final class NotchService {
         static let shared = NotchService()
-        let acceptsSystemFeedback = true
-        let showsSystemFeedback = true
+        var acceptsUserInteraction = true
+        let acceptsSystemFeedback = false
+        let showsSystemFeedback = false
         func showCurrentVolume() {}
     }
     struct NSEvent { let data1: Int }

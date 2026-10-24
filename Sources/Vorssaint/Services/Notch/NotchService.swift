@@ -4076,6 +4076,13 @@ final class NotchService: ObservableObject {
     func showVolume(_ volume: Double, muted: Bool? = nil) -> Bool {
         guard volume.isFinite else { return false }
         let value = muted == true ? 0 : min(1, max(0, volume))
+        // Hiding the island changes presentation, not ownership of media keys.
+        // Use the same all-Spaces card as brightness while the island is hidden.
+        if acceptsUserInteraction, NotchSupport.routes(.volume), let displayID,
+           hiddenInFullscreen || hiddenUntilHover {
+            BrightnessOSD.showVolume(displayID: displayID, volume: value, muted: muted == true)
+            return true
+        }
         let mixer = AppVolumeMixer.shared
         let output = mixer.outputDevices.first { $0.uid == mixer.currentOutputDeviceUID }
         let symbol: String
