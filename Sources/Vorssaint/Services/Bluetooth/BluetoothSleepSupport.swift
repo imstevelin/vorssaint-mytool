@@ -44,6 +44,13 @@ struct BluetoothAudioRecoveryPolicy {
     private(set) var reconnectedWithinEpisode = false
     private var absentSince: Date?
 
+    /// Manual retries retain the same selected-output and persisted cooldown contract.
+    static func permitsManualRecovery(uid: String?, selectedUIDs: Set<String>,
+                                      now: Date, previousAttempt: Date?) -> Bool {
+        guard let uid, selectedUIDs.contains(uid) else { return false }
+        return previousAttempt.map { now.timeIntervalSince($0) >= cooldown } ?? true
+    }
+
     mutating func observe(uid: String?, now: Date, previousAttempt: Date?,
                           selectedUIDs: Set<String>) -> Bool {
         reconnectedWithinEpisode = false

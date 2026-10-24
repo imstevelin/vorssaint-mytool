@@ -71,6 +71,7 @@ private struct BluetoothAudioRecoverySettings: View {
     @State private var selected: [String: String] = [:]
     @State private var devices: [BluetoothAudioRecoveryService.Device] = []
     @State private var connectedUIDs = Set<String>()
+    @State private var recoveryStatus: String?
     private let refresh = Timer.publish(every: 3, on: .main, in: .common).autoconnect()
 
     private var chinese: Bool {
@@ -135,6 +136,35 @@ private struct BluetoothAudioRecoverySettings: View {
                     .foregroundStyle(.secondary)
             }
             Divider()
+            Button(chinese ? "立即嘗試修復音量" : "Try volume recovery now") {
+                busy = true
+                recoveryStatus = nil
+                BluetoothAudioRecoveryService.shared.recoverCurrentOutput { result in
+                    busy = false
+                    switch result {
+                    case .restartRequested:
+                        recoveryStatus = chinese ? "已送出藍牙重啟要求。請等待喇叭重新連線，再測試音量；若未自動連線，請手動連接。" : "Bluetooth restart requested. Wait for the speaker to reconnect, then test volume; reconnect manually if needed."
+                    case .unavailable:
+                        recoveryStatus = chinese ? "請先將已勾選的藍牙喇叭設為目前音訊輸出。" : "Select a checked Bluetooth speaker as the current audio output first."
+                    case .coolingDown:
+                        recoveryStatus = chinese ? "距上次嘗試未滿 30 分鐘，請稍後再試。" : "Recovery was attempted within the last 30 minutes. Try again later."
+                    case .authorizationRequired:
+                        configured = false
+                        recoveryStatus = chinese ? "請先完成下方的重啟授權。" : "Authorize Bluetooth restart below first."
+                    case .failed:
+                        recoveryStatus = chinese ? "藍牙重啟未成功。請檢查授權或在系統設定重新連接喇叭。" : "Bluetooth restart failed. Check authorization or reconnect the speaker in System Settings."
+                    }
+                }
+            }
+            .disabled(busy || !configured || selected.isEmpty)
+            Text(chinese
+                 ? "適用於連線後音量滑桿有變、實際音量卻不變的情況。會短暫中斷所有藍牙裝置，每 30 分鐘最多一次；無法保證修復所有喇叭。手動修復不需要開啟自動重啟。"
+                 : "For a moving volume slider with unchanged speaker loudness. Briefly disconnects all Bluetooth devices, at most once every 30 minutes; recovery is not guaranteed. Automatic restart can remain off.")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+            if let recoveryStatus {
+                Text(recoveryStatus).font(.callout).foregroundStyle(.secondary)
+            }
             if !configured {
                 Button(chinese ? "授權自動重啟" : "Authorize automatic restart") {
                     busy = true

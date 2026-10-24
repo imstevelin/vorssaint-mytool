@@ -34,6 +34,16 @@ enum AppManagementFeatureTests {
                     DefaultsKey.bluetoothAudioRecoveryEnabled),
                "speaker recovery is opt-in and only its preference travels in a backup")
         let start = Date(timeIntervalSince1970: 1_000_000)
+        suite.expect(BluetoothAudioRecoveryPolicy.permitsManualRecovery(uid: "speaker", selectedUIDs: ["speaker"], now: start, previousAttempt: nil),
+                     "a selected current speaker can be recovered manually without an automatic connection event")
+        for uid: String? in [nil, "unselected"] {
+            suite.expect(!BluetoothAudioRecoveryPolicy.permitsManualRecovery(uid: uid, selectedUIDs: ["speaker"], now: start, previousAttempt: nil),
+                         "manual recovery rejects absent and unselected outputs")
+        }
+        for seconds: TimeInterval in [-1, 0, 1799, 1800] {
+            suite.expect(BluetoothAudioRecoveryPolicy.permitsManualRecovery(uid: "speaker", selectedUIDs: ["speaker"], now: start.addingTimeInterval(seconds), previousAttempt: start) == (seconds >= 1800),
+                         "manual recovery preserves persistent cooldown, including clock rollback")
+        }
         var recovery = BluetoothAudioRecoveryPolicy()
         suite.expect(!recovery.observe(uid: nil, now: start, previousAttempt: nil, selectedUIDs: ["speaker", "speaker-reenumerated"]),
                      "startup without a speaker is a baseline")

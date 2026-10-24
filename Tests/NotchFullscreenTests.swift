@@ -174,16 +174,16 @@ enum NotchFullscreenTests {
             service.screenUpdate = { [weak service] in service?.updateFullscreenVisibility(displayID: displayID) }
             service.updateScreen()
             volume.syncWithPreferences()
-            suite.expect(service.hiddenInFullscreen && volume.running == preciseVolume,
-                         "fullscreen startup keeps the tap only when the precise volume roller needs it")
+            suite.expect(service.hiddenInFullscreen && volume.running,
+                         "fullscreen startup retains media key ownership for the central card")
             displayID = 1
             service.fullscreenEnvironmentDidChange()
             suite.expect(!service.hiddenInFullscreen && service.acceptsSystemFeedback && volume.running,
                          "returning to the desktop restores the volume tap without a preference change")
             displayID = 2
             service.fullscreenEnvironmentDidChange()
-            suite.expect(service.hiddenInFullscreen && volume.running == preciseVolume,
-                         "entering fullscreen releases the notch tap but preserves the precise volume roller")
+            suite.expect(service.hiddenInFullscreen && volume.running,
+                         "entering fullscreen retains volume and mute interception")
         }
     }
 }
