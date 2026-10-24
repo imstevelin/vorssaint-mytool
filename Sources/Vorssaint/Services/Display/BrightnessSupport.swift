@@ -200,8 +200,9 @@ enum BrightnessSupport {
         return Array(updated.suffix(limit))
     }
 
-    static func shouldProbeDDC(pathKey: String?, writeOnlyPaths: Set<String>) -> Bool {
-        guard let pathKey else { return true }
+    static func shouldProbeDDC(pathKey: String?, writeOnlyPaths: Set<String>,
+                               revalidate: Bool = false) -> Bool {
+        guard !revalidate, let pathKey else { return true }
         return !writeOnlyPaths.contains(pathKey)
     }
 

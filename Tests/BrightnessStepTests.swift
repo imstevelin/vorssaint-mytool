@@ -62,6 +62,7 @@ enum BrightnessStepTests {
         var focusedDisplayID: UInt32?
         func focusKeyDisplay(_ id: UInt32) { focusedDisplayID = id }
         var reply: (current: UInt16, maximum: UInt16) = (0, 100)
+        var probeFails = false
         var routes: [UInt32: Route] = [:]
         var committed: [Double] = []
         var dimmedDisplays = Set<UInt32>()
@@ -77,7 +78,7 @@ enum BrightnessStepTests {
             committed.append(current + delta)
         }
         func ddcProbeLuminance(for id: UInt32, service: CFTypeRef) -> DDCProbe {
-            .replied(current: reply.current, maximum: reply.maximum)
+            probeFails ? .writeOnly : .replied(current: reply.current, maximum: reply.maximum)
         }
         func forgetWriteOnlyDDCPath(_ path: String?) {}
         func rememberWriteOnlyDDCPath(_ path: String?) {}
@@ -106,6 +107,30 @@ enum BrightnessStepTests {
                      && !BrightnessSupport.sliderShowsFocusedDisplay(controlEnabled: true, shown: [], focused: nil)
                      && !BrightnessSupport.sliderShowsFocusedDisplay(controlEnabled: false, shown: [1], focused: 1),
                      "the island's brightness slider shows a key's display only when it is on and can show that display")
+
+        // A monitor that failed discovery can recover without reopening a panel.
+        service.routes[2]?.ddcReadable = false
+        service.routes[2]?.maximum = 100
+        service.levelKnownAt[2] = nil
+        service.displays[0].brightness = 0.5
+        service.reply = (20, 200)
+        service.step(2, method: .ddc, delta: 0.0625, showOSD: false)
+        service.workQueue.drain()
+        DispatchQueue.main.drain()
+        suite.expect(service.committed.last.map { abs($0 - 0.1625) < 0.0001 } == true
+                     && service.routes[2]?.ddcReadable == true
+                     && service.routes[2]?.maximum == 200,
+                     "a write-only discovery recovers actual brightness and range before stepping")
+        service.probeFails = true
+        service.levelKnownAt[2] = nil
+        let previousCommits = service.committed
+        service.step(2, method: .ddc, delta: 0.0625, showOSD: false)
+        service.workQueue.drain()
+        DispatchQueue.main.drain()
+        suite.expect(service.committed == previousCommits,
+                     "an unreadable initial monitor never steps from the arbitrary discovery placeholder")
+        service.probeFails = false
+        service.reply = (80, 100)
 
         service.levelKnownAt[2] = nil
         service.step(2, method: .ddc, delta: 0.1, showOSD: false)

@@ -65,6 +65,8 @@ jobs:
           plutil -lint "$APP/Contents/Info.plist"
           test -x "$APP/Contents/Helpers/DisplayRecoveryHelper"
           test -x "$APP/Contents/Helpers/VirtualDisplayHost"
+          test -x "$APP/Contents/Helpers/NativeHiDPIHelper"
+          codesign --verify --strict "$APP/Contents/Helpers/NativeHiDPIHelper"
 
       - name: Package DMG
         run: |

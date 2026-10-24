@@ -142,8 +142,10 @@ struct MetricsTests {
                 SystemOutputControlTests.run(suite)
                 DisplayAudioBurstTests.run(suite)
                 HiDPIRefreshRateTests.run(suite)
+                NativeHiDPIOverrideTests.run(suite)
                 DisplayReconnectTimingTests.run(suite)
                 DisplayColorPipelineTests.run(suite)
+                VirtualDisplayCursorRefreshTests.run(suite)
             }),
             ("software-dimming", { SoftwareDimmingRouteTests.run { suite.expect($0, $1) } }),
             ("capture", { ScreenshotSelectionRefreshContract.run(suite) }),
