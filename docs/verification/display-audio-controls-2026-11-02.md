@@ -19,5 +19,5 @@ DDC 接管的按鍵失敗留在 App：保留硬體重試、讀回、確認值回
 
 - 生產程式的選單 Binding 直接抽取進測試，覆蓋 DDC 初始讀值、讀回更新、切換原生輸出與 DDC 寫入／解除靜音；不是另寫一份 UI 綁定實作。
 - 覆蓋 DDC 失敗不重送、非同步排隊後切換輸出不誤寫，以及成功切換後立即清除舊能力並同步媒體鍵。
-- 最終建置、完整回歸、selftest 與 CI 結果以本輪提交及 PR 為準。
-- 尚未把自動測試當成實體 PA328QV 音量／硬體鍵驗收；本輪不更動藍牙修復、配對資訊或 HiDPI 設定。
+- 本機完整回歸 113,467 checks、mixer 595 checks、正式／Developer 建置、selftest 與 strict deep codesign 通過。[最終 CI](https://github.com/imstevelin/vorssaint-mytool/actions/runs/41335943526) 雙工具鏈成功；已合入 main 並安裝 1.2.1／14。
+- 安裝後實際設定介面確認 PA328QV 選中時顯示 DDC 滑桿與 100% 讀值，且 Core Audio 不提供可寫主音量；未改音量值。硬體鍵與實際響度不以自動測試代填。本輪未更動藍牙修復、配對資訊或 HiDPI 設定。
