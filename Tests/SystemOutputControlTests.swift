@@ -3,6 +3,10 @@ import Foundation
 import Combine
 
 enum SystemOutputControlTests {
+    enum NotchService {
+        static let shared = NotchService.self
+        static func noteOwnLevelAdjustment(_ event: NotchEvent) {}
+    }
     enum Control: Hashable { case volume, mute }
     struct Value {
         var current: UInt16
@@ -71,6 +75,9 @@ enum SystemOutputControlTests {
         suite.expect(route("PA328QV", identical) == nil, "identical monitor names do not establish a unique audio match")
 
         let output = SystemOutputControl.shared
+        let menu = MenuControl()
+        suite.expect(menu.systemOutputVolumeBinding.wrappedValue == 0.4,
+                     "menu slider reads the monitor's DDC volume when native volume is unavailable")
         let mixer = AppVolumeMixer.shared
         let displays = BrightnessService.shared
         suite.expect(output.volume == 0.4 && output.muted == true, "the island sees DDC volume and mute when CoreAudio exposes neither")
@@ -79,11 +86,15 @@ enum SystemOutputControlTests {
         suite.expect(VolumeFeedbackSound.scheduled == 1, "successful DDC slider adjustment schedules feedback once")
         suite.expect(applied && output.volume == 0.3 && output.muted == false && mixer.nativeWrites == 0,
                      "the island slider writes DDC and unmutes through the same control")
+        suite.expect(menu.systemOutputVolumeBinding.wrappedValue == 0.3,
+                     "menu slider follows DDC readback changes")
         output.requestAdjustment(muted: true) { applied = $0 }
         suite.expect(applied && output.muted == true, "the island mute button controls the monitor")
         suite.expect(VolumeFeedbackSound.scheduled == 1, "muting does not schedule an audible click")
         mixer.systemOutputVolume = 0.8; mixer.systemOutputMuted = false
         suite.expect(output.volume == 0.8 && output.muted == false, "switching to native audio hides the monitor's old state")
+        suite.expect(menu.systemOutputVolumeBinding.wrappedValue == 0.8,
+                     "menu slider follows the new native output instead of the previous monitor")
         output.requestAdjustment(volume: 0.6) { applied = $0 }
         suite.expect(VolumeFeedbackSound.scheduled == 2, "successful native slider adjustment schedules feedback once")
         suite.expect(applied && mixer.nativeWrites == 1 && output.volume == 0.6, "native output changes never write DDC")
@@ -112,6 +123,11 @@ enum SystemOutputControlTests {
         suite.expect(VolumeFeedbackSound.scheduled == 4,
                      "handled old-output completions cannot play feedback on the replacement output")
         mixer.deferred = false
+        mixer.systemOutputVolume = nil; mixer.systemOutputMuted = nil
+        let nativeWrites = mixer.nativeWrites
+        menu.systemOutputVolumeBinding.wrappedValue = 0.25
+        suite.expect(output.volume == 0.25 && output.muted == false && mixer.nativeWrites == nativeWrites,
+                     "the production menu binding writes DDC and unmutes without using a native output")
 
         let suiteName = "com.vorssaint.tests.native-display-keys.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!

@@ -35,11 +35,18 @@ enum MixerUniversalRoutingContract {
         func set(_ value: String?, forKey key: String) { values[key] = value }
     }
 
+    enum PreciseVolumeRollerService {
+        static let shared = PreciseVolumeRollerService.self
+        static var syncs = 0
+        static func syncWithPreferences() { syncs += 1 }
+    }
+
     final class Mixer {
         typealias MixerApp = MixerUniversalRoutingContract.MixerApp
         typealias L10n = MixerUniversalRoutingContract.L10n
         typealias AirPlayRouteManager = AirPlay
         typealias UserDefaults = Preferences
+        typealias PreciseVolumeRollerService = MixerUniversalRoutingContract.PreciseVolumeRollerService
         static var deviceLists: [AudioObjectID: [AudioObjectID]] = [:]
         static var reads: [(AudioObjectID, AudioObjectPropertySelector, AudioObjectPropertyScope)] = []
         static var writes: [(AudioObjectID, AudioObjectPropertySelector)] = []
@@ -57,6 +64,16 @@ enum MixerUniversalRoutingContract {
         var outputDevices = [Device(uid: "speakers", canBeDefaultOutput: true, audioObjectID: 10),
                              Device(uid: "airpods", canBeDefaultOutput: true, audioObjectID: 20)]
         var currentOutputDeviceUID: String? = "speakers"
+        var systemOutputVolume: Double? = 0.8
+        var systemOutputMuted: Bool? = false
+        var controlInvalidations = 0
+        var retiredControlUID: String?
+        func removeOutputControlListeners() {
+            controlInvalidations += 1; retiredControlUID = currentOutputDeviceUID
+        }
+        func applyOutputControls(volume: Double?, muted: Bool?) {
+            systemOutputVolume = volume; systemOutputMuted = muted
+        }
         var outputSwitchError: String?
         var apps: [MixerApp] = []
         var savedRoutes: [String: String] = [:]
@@ -120,6 +137,10 @@ enum MixerUniversalRoutingContract {
         suite.expect(mixer.currentOutputDeviceUID == "airpods" && mixer.apps == [wine, native]
                      && mixer.applied.isEmpty && mixer.refreshCount == 1,
                      "existing routes stay live until a fresh HAL snapshot can replace them")
+        suite.expect(mixer.systemOutputVolume == nil && mixer.systemOutputMuted == nil
+                     && mixer.controlInvalidations == 1 && mixer.retiredControlUID == "airpods"
+                     && PreciseVolumeRollerService.syncs > 0,
+                     "switching output immediately retires old native controls and resynchronizes DDC keys")
         suite.expect(!mixer.refresh.finish(generation) && !mixer.builds.isCurrent(wine.id, token: token),
                      "a universal change rejects old snapshots and builds")
         suite.expect(Mixer.writes.count == 1 && Mixer.writes[0].0 == 20

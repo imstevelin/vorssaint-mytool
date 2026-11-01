@@ -898,9 +898,14 @@ final class AppVolumeMixer: ObservableObject {
             switchSucceeded: true)
         persistOutputDeviceUIDs(preferences.outputDeviceUIDs)
         sessionRoutes.removeAll()
-        // A second shortcut press can precede the HAL snapshot. Cycle from
-        // the successful choice, while the per-app routes await that read.
+        // Publish the successful choice first so retired operations see that
+        // their output changed and cannot replay keys or feedback into it.
         currentOutputDeviceUID = device.uid
+        // Before returning to the event loop, retire old controls and clear
+        // their capabilities. DDC must not wait for the next HAL snapshot.
+        removeOutputControlListeners()
+        applyOutputControls(volume: nil, muted: nil)
+        PreciseVolumeRollerService.shared.syncWithPreferences()
 
         // Builds started for the previous device can no longer be installed;
         // the engines themselves stay live until reconciliation has their
