@@ -12,6 +12,7 @@ struct MixerSection: View {
     @Environment(\.notchPresentation) private var inNotch
     @ObservedObject private var l10n = L10n.shared
     @ObservedObject private var mixer = AppVolumeMixer.shared
+    @ObservedObject private var output = SystemOutputControl.shared
     @ObservedObject private var inputManager = AudioInputDeviceManager.shared
     @ObservedObject private var audioPriority = AudioPriorityService.shared
     @ObservedObject private var micMute = MicMuteService.shared
@@ -156,9 +157,9 @@ struct MixerSection: View {
                 .help(l10n.s.mixerSystemOutputTooltip)
             }
 
-            if let volume = mixer.systemOutputVolume {
+            if let volume = output.volume {
                 HStack(spacing: 8) {
-                    Image(systemName: mixer.systemOutputMuted == true || volume <= 0.001
+                    Image(systemName: output.muted == true || volume <= 0.001
                           ? "speaker.slash.fill"
                           : "speaker.wave.2.fill")
                         .font(.system(size: 10.5, weight: .semibold))
@@ -264,12 +265,12 @@ struct MixerSection: View {
             // The slider shows the level; the island's header need not repeat it.
             NotchService.shared.noteOwnLevelAdjustment(.volume)
         }
-        SystemOutputControl.shared.requestAdjustment(volume: value)
+        output.requestAdjustment(volume: value)
     }
 
     private var systemOutputVolumeBinding: Binding<Double> {
         Binding(
-            get: { mixer.systemOutputVolume ?? 0 },
+            get: { output.volume ?? 0 },
             set: { setSystemOutputVolume($0) }
         )
     }

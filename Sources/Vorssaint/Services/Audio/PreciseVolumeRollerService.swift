@@ -153,18 +153,17 @@ final class PreciseVolumeRollerService: ObservableObject {
         let wantsFeedback = NotchVolumeKeyGate.playsFeedback(
             setting: VolumeFeedbackSound.enabled,
             option: event.flags.contains(.maskAlternate), shift: event.flags.contains(.maskShift))
-        let fallback = event.copy()
         let fine = UserDefaults.standard.bool(forKey: DefaultsKey.preciseVolumeRollerEnabled)
             || (event.flags.contains(.maskAlternate) && event.flags.contains(.maskShift))
         DispatchQueue.main.async {
+            // A DDC route has no native volume control to fall back to. Keep
+            // its failed operation in the App instead of replaying it into the
+            // system HUD (or a newly selected output).
+            guard service.hardwareAudioDisplayID == id,
+                  outputUID == AppVolumeMixer.shared.currentOutputDeviceUID else { return }
             var rejectedImmediately = false
             let completion: (Bool) -> Void = { applied in
                 if !applied { rejectedImmediately = true }
-                if !applied, let fallback {
-                    fallback.setIntegerValueField(.eventSourceUserData, value: PreciseVolumeKeyEvents.postedMarker)
-                    fallback.post(tap: .cgSessionEventTap)
-                    Self.postForwardedRelease(code)
-                }
             }
             if key == .mute { service.toggleHardwareMute(for: id, completion: completion) }
             else { service.stepHardwareAudio(key == .volumeUp ? 1 : -1, fine: fine, completion: completion) }
@@ -203,8 +202,9 @@ final class PreciseVolumeRollerService: ObservableObject {
         // CoreAudio can wait for a reconnecting device. Never hold the event
         // tap's reply while reading or writing the audio driver.
         DispatchQueue.main.async {
+            guard outputUID == mixer.currentOutputDeviceUID else { return }
             let completion: (Bool) -> Void = { applied in
-                if !applied, let fallback {
+                if !applied, outputUID == mixer.currentOutputDeviceUID, let fallback {
                     fallback.setIntegerValueField(.eventSourceUserData, value: PreciseVolumeKeyEvents.postedMarker)
                     fallback.post(tap: .cgSessionEventTap)
                     Self.postForwardedRelease(code)

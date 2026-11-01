@@ -47,10 +47,13 @@ def availability_declaration(path, prefix):
 
 def main():
     OUTPUT.mkdir(parents=True, exist_ok=True)
-    write("SystemOutputControlRuntime.swift", "import AppKit\nimport Combine\n"
+    write("SystemOutputControlRuntime.swift", "import AppKit\nimport Combine\nimport SwiftUI\n"
           + "extension SystemOutputControlTests {\n"
           + declaration("Sources/Vorssaint/Services/Audio/SystemOutputControl.swift", "final class SystemOutputControl:")
-          + "}\n")
+          + "struct MenuControl {\nlet output = SystemOutputControl.shared\nvar inNotch = false\n"
+          + declaration("Sources/Vorssaint/UI/MenuPanel/MixerSection.swift", "    private func setSystemOutputVolume(").replace("private func", "func", 1)
+          + declaration("Sources/Vorssaint/UI/MenuPanel/MixerSection.swift", "    private var systemOutputVolumeBinding:").replace("private var", "var", 1)
+          + "}\n}\n")
     write("VolumeFeedbackSoundRuntime.swift", "import Foundation\nextension VolumeFeedbackSoundTests {\n"
           + declaration("Sources/Vorssaint/Services/Audio/VolumeFeedbackSound.swift", "final class VolumeFeedbackSound")
           + "}\n")

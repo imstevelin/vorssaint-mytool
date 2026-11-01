@@ -165,14 +165,29 @@ enum NotchVolumeRoutingTests {
         _ = failedSound.routeHardwareVolume(NSEvent(data1: 0x0a00), event: failedSoundEvent)
         _ = failedSound.routeHardwareVolume(NSEvent(data1: 0x0b00), event: failedSoundEvent)
         drain()
-        suite.expect(VolumeFeedbackSound.plays == 0 && failedSoundEvent.posts == 1,
-                     "failed DDC adjustment adds no duplicate click before native fallback")
+        suite.expect(VolumeFeedbackSound.plays == 0 && failedSoundEvent.posts == 0,
+                     "failed DDC adjustment adds neither feedback nor a native system event")
         let failedHost = reset(); hardware.succeeds = false
         let failedEvent = CGEvent()
         _ = failedHost.routeHardwareVolume(NSEvent(data1: Int(PreciseVolumeMediaKey.volumeUp.rawValue) << 16 | 0x0a00), event: failedEvent)
         drain()
-        suite.expect(failedEvent.posts == 1 && failedEvent.marker == PreciseVolumeKeyEvents.postedMarker,
-                     "failed DDC media-key operations forward a marked native event without recursion")
+        suite.expect(failedEvent.posts == 0 && failedEvent.marker == nil,
+                     "a failed owned DDC command never replays an unsupported system volume key")
+        let switchedHardware = reset()
+        hardware.hardwareAudioDisplayID = 2; hardware.writes = []; hardware.succeeds = true
+        let switchedHardwareEvent = CGEvent()
+        _ = switchedHardware.routeHardwareVolume(NSEvent(data1: 0x0a00), event: switchedHardwareEvent)
+        AppVolumeMixer.shared.selectOutput(2, volume: 0.3, muted: false)
+        drain()
+        suite.expect(hardware.writes.isEmpty && switchedHardwareEvent.posts == 0,
+                     "a queued monitor key cannot write or replay into a replacement audio output")
+        let switchedNative = reset()
+        let switchedNativeEvent = CGEvent()
+        _ = press(.volumeUp, service: switchedNative, event: switchedNativeEvent)
+        AppVolumeMixer.shared.selectOutput(2, volume: 0.3, muted: false)
+        drain()
+        suite.expect(Hardware.writes.isEmpty && switchedNativeEvent.posts == 0,
+                     "a queued native key cannot adjust the output selected after its keydown")
         hardware.succeeds = true; hardware.hardwareAudioDisplayID = nil
         let nativeHost = reset(); let nativeEvent = CGEvent()
         suite.expect(!nativeHost.routeHardwareVolume(NSEvent(data1: Int(PreciseVolumeMediaKey.volumeUp.rawValue) << 16 | 0x0a00), event: nativeEvent),
