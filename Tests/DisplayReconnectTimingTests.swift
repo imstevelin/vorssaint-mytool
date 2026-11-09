@@ -65,6 +65,8 @@ enum DisplayReconnectTimingTests {
                            "external": CGRect(x: 1440, y: 0, width: 2560, height: 1440)]
         let now = Date()
         memory.endManagedDisplayTransition()
+        suite.expect(memory.observations["window"] == 1,
+                     "managed display transitions retain identities for exact position restoration")
         suite.expect(!memory.managedDisplayTransition && memory.pendingLayoutDisplays == ["external"],
                      "the new monitor still receives its full layout after HiDPI verification")
         suite.expect(memory.scanResumeAt.timeIntervalSince(now) < 0.25

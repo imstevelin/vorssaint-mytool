@@ -281,6 +281,10 @@ def main():
           + declaration(memory_service, "    private func processWindows(").replace("private func", "func", 1)
           + "    func scan() { processWindows(visibleWindows()) }\n"
           + "}\n}\n")
+    write("DisplayWindowEventScheduling.swift", "import Foundation\nextension DisplayWindowEventSchedulingTests {\n"
+          + "final class Service: Fixture {\n"
+          + declaration(memory_service, "    private func requestEventScan(").replace("private func", "func", 1)
+          + "}\n}\n")
     write("DisplayReconnectTiming.swift", "import Foundation\nimport CoreGraphics\nextension DisplayReconnectTimingTests {\n"
           + "final class ResumeService: ResumeState {\n"
           + declaration(hidpi, "    private func scheduleSavedProfiles()").replace("private func", "func", 1)

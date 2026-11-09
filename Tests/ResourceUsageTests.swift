@@ -84,21 +84,27 @@ enum ResourceUsageTests {
         for _ in 0..<8 { now += 0.5; _ = cache.resolve([a, b]) }
         suite.expect(reads == 1 && stableReads == 2 && dynamicReads == 18,
                      "stable roles are cached while modal/full-screen state is checked every half-second")
+        let other = DisplayWindowAXCache.Key(pid: getpid() + 1, id: 11)
+        _ = cache.resolve([other], scopedPID: other.pid)
+        let beforeScoped = reads
+        _ = cache.resolve([a, b], scopedPID: a.pid)
+        suite.expect(reads == beforeScoped,
+                     "targeted window events preserve other applications' AX cache entries")
         dynamic = false
         suite.expect(cache.resolve([a]).eligible.isEmpty,
                      "a newly modal/full-screen/invalid cached window is rejected immediately")
         dynamic = true
         _ = cache.resolve([a])
-        suite.expect(reads == 2, "rejected handles are re-resolved rather than hiding a replacement for five seconds")
+        suite.expect(reads == beforeScoped + 1, "rejected handles are re-resolved rather than hiding a replacement for five seconds")
         cache.invalidate(pid: getpid())
         _ = cache.resolve([a])
-        suite.expect(reads == 3, "an AX event invalidates the affected process immediately")
+        suite.expect(reads == beforeScoped + 2, "an AX event invalidates the affected process immediately")
         now += 5
         _ = cache.resolve([a])
-        suite.expect(reads == 4, "apps missing AX notifications retain a five-second stable-property refresh")
+        suite.expect(reads == beforeScoped + 3, "apps missing AX notifications retain a five-second stable-property refresh")
         _ = cache.resolve([])
         _ = cache.resolve([a])
-        suite.expect(reads == 5, "closed or offscreen windows cannot retain stale AX handles")
+        suite.expect(reads == beforeScoped + 4, "closed or offscreen windows cannot retain stale AX handles")
     }
 
     private static func profileStorage(_ suite: TestSuite) {

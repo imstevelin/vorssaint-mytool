@@ -30,10 +30,10 @@ final class DisplayWindowAXCache {
         else { entries.removeAll() }
     }
 
-    func resolve(_ keys: [Key]) -> (eligible: Set<Key>, elements: [pid_t: [AXUIElement]]) {
+    func resolve(_ keys: [Key], scopedPID: pid_t? = nil) -> (eligible: Set<Key>, elements: [pid_t: [AXUIElement]]) {
         let now = clock()
         let wanted = Set(keys)
-        entries = entries.filter { wanted.contains($0.key) }
+        entries = entries.filter { (scopedPID != nil && $0.key.pid != scopedPID) || wanted.contains($0.key) }
         var appWindows: [pid_t: [CGWindowID: AXUIElement]] = [:]
         var accepted = Set<Key>()
         var elements: [pid_t: [AXUIElement]] = [:]
@@ -126,8 +126,8 @@ final class DisplayWindowEventObserver {
     private let changed: (pid_t) -> Void
     init(changed: @escaping (pid_t) -> Void) { self.changed = changed }
 
-    func update(_ elements: [pid_t: [AXUIElement]]) {
-        queue.async { [self] in updateOnQueue(elements) }
+    func update(_ elements: [pid_t: [AXUIElement]], replacingAll: Bool = true) {
+        queue.async { [self] in updateOnQueue(elements, replacingAll: replacingAll) }
     }
 
     private func retire(_ subscription: Subscription) {
@@ -137,8 +137,8 @@ final class DisplayWindowEventObserver {
         DispatchQueue.main.async { Unmanaged.passUnretained(subscription).release() }
     }
 
-    private func updateOnQueue(_ elements: [pid_t: [AXUIElement]]) {
-        for (pid, subscription) in subscriptions where elements[pid] == nil {
+    private func updateOnQueue(_ elements: [pid_t: [AXUIElement]], replacingAll: Bool) {
+        for (pid, subscription) in subscriptions where replacingAll && elements[pid] == nil {
             retire(subscription)
             subscriptions.removeValue(forKey: pid)
         }

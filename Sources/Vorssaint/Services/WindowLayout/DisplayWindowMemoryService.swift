@@ -26,7 +26,7 @@ final class DisplayWindowMemoryService {
         var lastSeen: Date
     }
 
-    private let queryQueue = DispatchQueue(label: "com.vorssaint.window-memory-query", qos: .utility)
+    private let queryQueue = DispatchQueue(label: "com.vorssaint.window-memory-query", qos: .userInitiated)
     private let persistenceQueue = DispatchQueue(label: "com.vorssaint.window-memory-save", qos: .utility)
     private let axCache = DisplayWindowAXCache()
     private let profileStore = DisplayWindowProfileStore()
@@ -42,17 +42,27 @@ final class DisplayWindowMemoryService {
     private var activeProfiles: [String: Set<String>] = [:]
     private var persistedProfiles: [String: [String: RememberedWindowGeometry]] = [:]
     private var profileTouches: [String: [String: TimeInterval]] = [:]
+    private var pendingEventPIDs = Set<pid_t>()
+    private var mouseInteractionMonitor: Any?
+    private var workspaceObservers: [NSObjectProtocol] = []
     private lazy var windowEvents = DisplayWindowEventObserver { [weak self] pid in
         guard let self, self.timer != nil else { return }
         self.eventVersions[pid, default: 0] += 1
-        self.queryQueue.async { [self] in self.axCache.invalidate(pid: pid) }
-        guard self.eventWork == nil else { return }
+        self.requestEventScan(pid)
+    }
+
+    private func requestEventScan(_ pid: pid_t) {
+        pendingEventPIDs.insert(pid)
+        guard eventWork == nil, !queryInFlight, NSEvent.pressedMouseButtons == 0 else { return }
         let work = DispatchWorkItem { [weak self] in
-            self?.eventWork = nil
-            self?.scan()
+            guard let self else { return }
+            self.eventWork = nil
+            guard let pid = self.pendingEventPIDs.first else { return }
+            self.pendingEventPIDs.remove(pid)
+            self.scan(targetPID: pid)
         }
-        self.eventWork = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05, execute: work)
+        eventWork = work
+        DispatchQueue.main.async(execute: work)
     }
     private let defaults = UserDefaults.standard
     private var memory: DisplayWindowMemory
@@ -102,6 +112,25 @@ final class DisplayWindowMemoryService {
         timer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
             self?.scan()
         }
+        for name in [NSWorkspace.didLaunchApplicationNotification, NSWorkspace.didActivateApplicationNotification] {
+            workspaceObservers.append(NSWorkspace.shared.notificationCenter.addObserver(
+                forName: name, object: nil, queue: .main
+            ) { [weak self] notification in
+                guard let app = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication else { return }
+                self?.requestEventScan(app.processIdentifier)
+            })
+        }
+        mouseInteractionMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown,
+                                                                                       .leftMouseUp, .rightMouseUp, .otherMouseUp]) { [weak self] _ in
+            guard let self else { return }
+            // Capture the drag baseline before a move, including quick drags
+            // that begin and end between periodic snapshots. This monitor does
+            // not intercept input and performs no AX traffic.
+            self.trackInteraction(self.visibleWindows())
+            if NSEvent.pressedMouseButtons == 0, let pid = self.pendingEventPIDs.first {
+                self.requestEventScan(pid)
+            }
+        }
         scan()
     }
 
@@ -138,6 +167,11 @@ final class DisplayWindowMemoryService {
     private func stop() {
         lifecycleGeneration += 1
         eventWork?.cancel(); eventWork = nil
+        pendingEventPIDs.removeAll()
+        if let mouseInteractionMonitor { NSEvent.removeMonitor(mouseInteractionMonitor) }
+        mouseInteractionMonitor = nil
+        workspaceObservers.forEach { NSWorkspace.shared.notificationCenter.removeObserver($0) }
+        workspaceObservers.removeAll()
         windowEvents.stop()
         queryQueue.async { [self] in axCache.invalidate() }
         timer?.invalidate()
@@ -159,7 +193,7 @@ final class DisplayWindowMemoryService {
     }
     func endManagedDisplayTransition() {
         managedDisplayTransition = false
-        observations.removeAll()
+        // Keep identities so topology restoration remains distinct from a new opening.
         let geometry = displayGeometry()
         let current = Set(geometry.keys)
         pendingLayoutDisplays.formUnion(DisplayWindowMemorySupport.newlyConnected(
@@ -200,16 +234,24 @@ final class DisplayWindowMemoryService {
         }
     }
 
-    private func scan() {
+    private func scan(targetPID: pid_t? = nil) {
         guard timer != nil, !managedDisplayTransition, AXIsProcessTrusted(),
               SessionActivity.shared.isActive, Date() >= scanResumeAt else { return }
-        let candidates = visibleWindows()
-        trackInteraction(candidates)
+        let allCandidates = visibleWindows()
+        trackInteraction(allCandidates)
+        // Event scans query only the affected app; unrelated slow AX clients
+        // cannot delay a new window. Topology recovery still needs a full pass.
+        let scopedPID = pendingLayoutDisplays.isEmpty ? targetPID : nil
+        let candidates = allCandidates.filter { scopedPID == nil || $0.pid == scopedPID }
         if NSEvent.pressedMouseButtons != 0 {
-            interactionResumeAt = Date().addingTimeInterval(0.25)
+            interactionResumeAt = Date()
+            if let targetPID { pendingEventPIDs.insert(targetPID) }
             return // Track user geometry without AX traffic while dragging.
         }
-        guard Date() >= interactionResumeAt, !queryInFlight else { return }
+        guard Date() >= interactionResumeAt, !queryInFlight else {
+            if let targetPID { pendingEventPIDs.insert(targetPID) }
+            return
+        }
         guard storeLoaded else {
             guard !loadingStore else { return }
             loadingStore = true
@@ -239,7 +281,8 @@ final class DisplayWindowMemoryService {
             return (display, key)
         }
         queryQueue.async { [self] in
-            let resolved = axCache.resolve(keys)
+            if let scopedPID { axCache.invalidate(pid: scopedPID) }
+            let resolved = axCache.resolve(keys, scopedPID: scopedPID)
             var profiles: [String: [String: RememberedWindowGeometry]] = [:]
             for (display, key) in profileRequests {
                 if let profile = profileStore.profile(display: display, key: key) {
@@ -248,13 +291,18 @@ final class DisplayWindowMemoryService {
             }
             DispatchQueue.main.async { [self] in
                 queryInFlight = false
+                defer {
+                    if timer != nil, let pid = pendingEventPIDs.first { requestEventScan(pid) }
+                }
                 guard timer != nil, lifecycleGeneration == generation,
                       transitionGeneration == transition,
                       !managedDisplayTransition, SessionActivity.shared.isActive else { return }
-                let current = visibleWindows()
-                trackInteraction(current)
+                let allCurrent = visibleWindows()
+                trackInteraction(allCurrent)
+                let current = allCurrent.filter { scopedPID == nil || $0.pid == scopedPID }
                 if NSEvent.pressedMouseButtons != 0 {
-                    interactionResumeAt = Date().addingTimeInterval(0.25)
+                    interactionResumeAt = Date()
+                    if let scopedPID { pendingEventPIDs.insert(scopedPID) }
                     return
                 }
                 // AX may have waited on another app. Never learn or restore a
@@ -266,10 +314,22 @@ final class DisplayWindowMemoryService {
                 let valid = DisplayWindowMemorySupport.validSnapshotIDs(previous: identities(candidates),
                     current: identities(current), previousEvents: events, currentEvents: eventVersions)
                 let complete = valid.count == candidates.count && valid.count == current.count
-                windowEvents.update(resolved.elements)
+                var elements = resolved.elements
+                // Subscribe even before a launched app exposes its first window.
+                if let scopedPID {
+                    if elements[scopedPID] == nil { elements[scopedPID] = [] }
+                } else {
+                    // Keep app-level creation notifications while a regular app
+                    // has no visible windows, including its launch interval.
+                    for app in NSWorkspace.shared.runningApplications
+                        where app.activationPolicy == .regular && app.processIdentifier != getpid() {
+                        if elements[app.processIdentifier] == nil { elements[app.processIdentifier] = [] }
+                    }
+                }
+                windowEvents.update(elements, replacingAll: scopedPID == nil)
                 activeProfiles.removeAll(keepingCapacity: true)
                 let now = ProcessInfo.processInfo.systemUptime
-                for window in current {
+                for window in allCurrent {
                     guard let display = displayKey(window.screen) else { continue }
                     let key = DisplayWindowMemorySupport.profileKey(bundleID: window.bundleID, titleDigest: window.titleDigest)
                     activeProfiles[display, default: []].insert(key)
@@ -296,8 +356,9 @@ final class DisplayWindowMemoryService {
                 let eligibleWindows = current.filter {
                     valid.contains($0.id) && resolved.eligible.contains(.init(pid: $0.pid, id: $0.id))
                 }
-                processWindows(eligibleWindows, capturesLayout: complete, deferredOpeningWindows: deferredOpenings,
-                               manualWindowIDs: Set(interaction.claimed.keys))
+                processWindows(eligibleWindows, capturesLayout: complete && scopedPID == nil,
+                               deferredOpeningWindows: deferredOpenings,
+                               manualWindowIDs: Set(interaction.claimed.keys), openingPeers: allCurrent)
                 for window in eligibleWindows {
                     guard let state = observations[window.id]?.state,
                           state.generation == transitionGeneration,
@@ -308,7 +369,7 @@ final class DisplayWindowMemoryService {
                     // A title changed during AX I/O. Look up its cold profile
                     // promptly rather than consuming the restore with an app
                     // fallback before that document's profile is available.
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in self?.scan() }
+                    for window in current where deferredOpenings.contains(window.id) { requestEventScan(window.pid) }
                 }
             }
         }
@@ -326,14 +387,15 @@ final class DisplayWindowMemoryService {
 
     private func processWindows(_ windows: [VisibleWindow], capturesLayout: Bool = true,
                                 deferredOpeningWindows: Set<CGWindowID> = [],
-                                manualWindowIDs: Set<CGWindowID> = []) {
+                                manualWindowIDs: Set<CGWindowID> = [],
+                                openingPeers: [VisibleWindow]? = nil) {
         guard !managedDisplayTransition, AXIsProcessTrusted(), SessionActivity.shared.isActive,
               Date() >= scanResumeAt else { return }
         let now = Date()
         if NSEvent.pressedMouseButtons != 0 {
-            interactionResumeAt = now.addingTimeInterval(0.25)
+            interactionResumeAt = now
         }
-        let interacting = now < interactionResumeAt
+        let interacting = NSEvent.pressedMouseButtons != 0 || now < interactionResumeAt
         if !interacting, !pendingLayoutDisplays.isEmpty {
             guard capturesLayout else { return } // Keep the full reconnect offer until the geometry settles.
             let displays = pendingLayoutDisplays
@@ -376,10 +438,14 @@ final class DisplayWindowMemoryService {
                     var acceptedFrame = window.frame
                     var restored = false
                     var matchesSaved = false
+                    let preservesOpeningOrigin = previous == nil && (openingPeers ?? windows).contains {
+                        $0.id != window.id && $0.bundleID == window.bundleID && displayKey($0.screen) == display
+                    }
                     if let desired = DisplayWindowMemorySupport.openingFrame(
                         in: memory.displays[display], bundleID: window.bundleID,
                         titleDigest: window.titleDigest, currentFrame: window.frame,
-                        displayBounds: displayBounds(window.screen), usableBounds: usableBounds(window.screen)) {
+                        displayBounds: displayBounds(window.screen), usableBounds: usableBounds(window.screen),
+                        preserveOpeningOrigin: preservesOpeningOrigin) {
                         matchesSaved = DisplayWindowMemorySupport.close(window.frame, desired)
                         if !matchesSaved {
                             restored = setFrame(desired, for: window)
