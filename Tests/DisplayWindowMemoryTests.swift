@@ -11,6 +11,7 @@ enum DisplayWindowMemoryTests {
         normalWindowTests(suite)
         openingGeometryTests(suite)
         DisplayWindowMemoryScanTests.run(suite)
+        DisplayWindowEventSchedulingTests.run(suite)
         suite.expect(Defaults.registeredDefaults[DefaultsKey.windowRememberSizes] as? Bool == false
             && Defaults.registeredDefaults[DefaultsKey.windowRestoreDisplayLayout] as? Bool == false,
             "display memory starts off until explicitly enabled")
@@ -290,6 +291,34 @@ enum DisplayWindowMemoryScanTests {
         service.scan()
         suite.expect(service.writes == [original],
                      "production scan restores a reopened window's position even without a size change")
+        let cascade = Service()
+        cascade.memory = service.memory
+        let newOrigin = original.origin.applying(CGAffineTransform(translationX: 32, y: 32))
+        let newlyOpened = CGRect(origin: newOrigin, size: CGSize(width: 900, height: 700))
+        cascade.windows = [window(original), window(newlyOpened, id: 13)]
+        cascade.processWindows([cascade.windows[1]], capturesLayout: false, openingPeers: cascade.windows)
+        suite.expect(cascade.writes == [CGRect(origin: newOrigin, size: original.size)],
+                     "a targeted new-window restore keeps the system cascade while applying the remembered size")
+        cascade.scan()
+        suite.expect(cascade.writes.count == 1,
+                     "a subsequent full scan does not undo the new window's cascade")
+        let maximumCascade = Service()
+        var maximumProfile = RememberedDisplay()
+        DisplayWindowMemorySupport.rememberOpeningFrame(screen.usable, in: &maximumProfile,
+            bundleID: app, titleDigest: nil, displayBounds: screen.bounds, usableBounds: screen.usable)
+        maximumCascade.memory.displays[screen.key] = maximumProfile
+        maximumCascade.windows = [window(screen.usable), window(newlyOpened, id: 13)]
+        maximumCascade.scan()
+        suite.expect(maximumCascade.writes.isEmpty,
+                     "an additional window does not inherit a maximum that would cover the existing window")
+        maximumCascade.observations[13]?.state.stableSince = Date().addingTimeInterval(-2)
+        maximumCascade.scan()
+        suite.expect(maximumCascade.persists == 0,
+                     "preserving an additional window's natural size does not overwrite the saved maximum")
+        cascade.transitionGeneration += 1
+        cascade.scan()
+        suite.expect(cascade.writes.last == original,
+                     "topology restoration retains exact remembered positions for existing windows")
         let manual = original.offsetBy(dx: 30, dy: 20)
         service.windows = [window(manual, id: 11)]
         service.scan(); service.scan()
@@ -389,5 +418,56 @@ enum DisplayWindowMemoryScanTests {
         suite.expect(batch.persists == beforeFocus,
                      "the production scan does not persist geometry when only WindowServer Z-order changes")
 
+    }
+}
+
+/// Exercise the production event scheduler with queue markers, without AX or a timer.
+enum DisplayWindowEventSchedulingTests {
+    enum NSEvent { static var pressedMouseButtons = 0 }
+    class Fixture {
+        var pendingEventPIDs = Set<pid_t>()
+        var eventWork: DispatchWorkItem?
+        var queryInFlight = false
+        var activeQuery: DispatchWorkItem?
+        var scans: [pid_t] = []
+        func scan(targetPID: pid_t) { scans.append(targetPID) }
+    }
+    static func run(_ suite: TestSuite) {
+        let service = Service()
+        func drain() {
+            var reached = false
+            DispatchQueue.main.async { reached = true }
+            let deadline = Date().addingTimeInterval(1)
+            while !reached && Date() < deadline {
+                RunLoop.main.run(until: Date().addingTimeInterval(0.001))
+            }
+            suite.expect(reached, "event scheduler reaches the main queue marker")
+        }
+        service.requestEventScan(123)
+        service.requestEventScan(123)
+        drain()
+        suite.expect(service.scans == [123], "window events coalesce on the next queue turn without a debounce timer")
+        service.queryInFlight = true
+        let obsolete = DispatchWorkItem {}
+        service.activeQuery = obsolete
+        service.requestEventScan(456)
+        suite.expect(obsolete.isCancelled, "a new window event cancels obsolete background AX work immediately")
+        drain()
+        suite.expect(service.scans == [123] && service.pendingEventPIDs.contains(456),
+                     "events arriving during AX I/O remain pending instead of waiting for polling")
+        service.queryInFlight = false
+        service.activeQuery = nil
+        service.requestEventScan(456)
+        drain()
+        suite.expect(service.scans == [123, 456], "pending events query only their affected app")
+        NSEvent.pressedMouseButtons = 1
+        service.requestEventScan(789)
+        drain()
+        suite.expect(service.scans.count == 2 && service.pendingEventPIDs.contains(789),
+                     "mouse interaction retains the request without running AX or polling faster")
+        NSEvent.pressedMouseButtons = 0
+        service.requestEventScan(789)
+        drain()
+        suite.expect(service.scans == [123, 456, 789], "mouse release resumes the pending event immediately")
     }
 }

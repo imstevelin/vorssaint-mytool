@@ -160,7 +160,8 @@ enum DisplayWindowMemorySupport {
 
     static func openingFrame(in stored: RememberedDisplay?, bundleID: String,
                              titleDigest: String?, currentFrame: CGRect,
-                             displayBounds: CGRect, usableBounds: CGRect) -> CGRect? {
+                             displayBounds: CGRect, usableBounds: CGRect,
+                             preserveOpeningOrigin: Bool = false) -> CGRect? {
         let keys = [profileKey(bundleID: bundleID, titleDigest: titleDigest),
                     profileKey(bundleID: bundleID, titleDigest: nil)]
         // A later app-wide choice supersedes an older document/folder profile,
@@ -172,9 +173,13 @@ enum DisplayWindowMemorySupport {
         }
         for key in orderedKeys {
             if let geometry = stored?.openingFrames?[key] {
-                if geometry.maximized { return usableBounds }
-                return fittedFrame(geometry.relativeFrame.offsetBy(
-                    dx: displayBounds.minX, dy: displayBounds.minY), within: usableBounds)
+                // Additional windows retain the app/macOS cascade. A remembered
+                // maximum must not cover an existing window either.
+                if geometry.maximized { return preserveOpeningOrigin ? currentFrame : usableBounds }
+                let frame = preserveOpeningOrigin
+                    ? CGRect(origin: currentFrame.origin, size: geometry.relativeFrame.size)
+                    : geometry.relativeFrame.offsetBy(dx: displayBounds.minX, dy: displayBounds.minY)
+                return fittedFrame(frame, within: usableBounds)
             }
         }
         // An old normal size must not shrink a window the app opened maximized.
