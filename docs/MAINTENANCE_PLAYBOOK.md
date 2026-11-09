@@ -14,6 +14,12 @@ python3 Tools/check-upstream.py
 
 同步由乾淨且最新的 main 建立 `codex/sync-upstream-YYYYMMDD`，固定官方 SHA，對照 `docs/FORK_CUSTOMIZATIONS.md` 整合，通過相關測試與完整 CI 後，以 PR 一般 merge 合入 main。更新 `docs/upstream-state.json` 與 `docs/upstream-sync/`。詳細步驟見 `CONTRIBUTING_FORK.md`；不要 squash 上游 merge、force-push main 或整份採 ours/theirs。
 
+## Issue 自動管理流程
+
+`issue-fix-status.yml` 是官方的 Issue 標記、發布確認留言與兩週未回覆關閉流程，僅允許在 `vorssaint/vorssaint-utils` 執行。fork 未啟用 Issues，且採手動發版，不使用此流程；在 fork Actions 設定停用 **Issue fix status**，原始碼中的每個 job 也保留官方倉庫條件，避免重新啟用或同步後誤執行。不要為消除通知而開啟 Issues、擴大 token 權限或允許不需要的 `pull_request_target`。
+
+2026-11-10 查證每日失敗訊息為 repository has disabled issues；11 月 9 日另有 PR 執行在啟動前遭 GitHub 的 `pull_request_target` 預設保護暫時封鎖，並非 App 建置失敗。詳見 [每日失敗紀錄](https://github.com/imstevelin/vorssaint-mytool/actions/runs/42661819996) 與 [啟動失敗紀錄](https://github.com/imstevelin/vorssaint-mytool/actions/runs/42654283067)。Fork CI 與 Upstream assessment 維持啟用。
+
 ## 開發自己的功能
 
 先把未完成的修改 commit 在原功能分支，保持工作目錄乾淨；不要把它混進官方同步分支。每個功能從最新 main 開一條短期分支：
