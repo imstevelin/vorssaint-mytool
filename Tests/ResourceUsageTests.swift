@@ -77,6 +77,18 @@ enum ResourceUsageTests {
             dynamicReads += 1
             return dynamic
         })
+        let cancellation = DispatchWorkItem {}
+        var visited = 0
+        let cancellable = DisplayWindowAXCache(clock: { 0 }, windows: { _ in [10: element, 11: element] },
+            stableEligibility: { _ in true }, dynamicEligibility: { _ in
+                visited += 1
+                cancellation.cancel()
+                return true
+            })
+        let first = DisplayWindowAXCache.Key(pid: getpid(), id: 10)
+        let next = DisplayWindowAXCache.Key(pid: getpid(), id: 11)
+        suite.expect(cancellable.resolve([first, next], cancellation: cancellation).eligible == [first] && visited == 1,
+                     "cancelled scans yield between windows without querying the remaining AX clients")
         let a = DisplayWindowAXCache.Key(pid: getpid(), id: 10)
         let b = DisplayWindowAXCache.Key(pid: getpid(), id: 11)
         suite.expect(cache.resolve([a, b]).eligible == [a, b] && reads == 1 && stableReads == 2,

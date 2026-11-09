@@ -34,6 +34,7 @@ final class DisplayWindowMemoryService {
     private var removing = false
     private var loadingStore = false
     private var queryInFlight = false
+    private var activeQuery: DispatchWorkItem?
     private var lifecycleGeneration = 0
     private var eventVersions: [pid_t: Int] = [:]
     private var eventWork: DispatchWorkItem?
@@ -53,6 +54,9 @@ final class DisplayWindowMemoryService {
 
     private func requestEventScan(_ pid: pid_t) {
         pendingEventPIDs.insert(pid)
+        // DispatchWorkItem cancellation is thread-safe. The query checks this
+        // between AX windows instead of finishing an obsolete full scan.
+        activeQuery?.cancel()
         guard eventWork == nil, !queryInFlight, NSEvent.pressedMouseButtons == 0 else { return }
         let work = DispatchWorkItem { [weak self] in
             guard let self else { return }
@@ -166,6 +170,7 @@ final class DisplayWindowMemoryService {
 
     private func stop() {
         lifecycleGeneration += 1
+        activeQuery?.cancel()
         eventWork?.cancel(); eventWork = nil
         pendingEventPIDs.removeAll()
         if let mouseInteractionMonitor { NSEvent.removeMonitor(mouseInteractionMonitor) }
@@ -273,6 +278,8 @@ final class DisplayWindowMemoryService {
         let transition = transitionGeneration
         let events = eventVersions
         queryInFlight = true
+        let query = DispatchWorkItem {}
+        activeQuery = query
         let keys = candidates.map { DisplayWindowAXCache.Key(pid: $0.pid, id: $0.id) }
         let profileRequests = candidates.compactMap { window -> (String, String)? in
             guard let display = displayKey(window.screen), let title = window.titleDigest else { return nil }
@@ -282,15 +289,17 @@ final class DisplayWindowMemoryService {
         }
         queryQueue.async { [self] in
             if let scopedPID { axCache.invalidate(pid: scopedPID) }
-            let resolved = axCache.resolve(keys, scopedPID: scopedPID)
+            let resolved = axCache.resolve(keys, scopedPID: scopedPID, cancellation: query)
             var profiles: [String: [String: RememberedWindowGeometry]] = [:]
             for (display, key) in profileRequests {
+                if query.isCancelled { break }
                 if let profile = profileStore.profile(display: display, key: key) {
                     profiles[display, default: [:]][key] = profile
                 }
             }
             DispatchQueue.main.async { [self] in
                 queryInFlight = false
+                activeQuery = nil
                 defer {
                     if timer != nil, let pid = pendingEventPIDs.first { requestEventScan(pid) }
                 }
@@ -314,6 +323,9 @@ final class DisplayWindowMemoryService {
                 let valid = DisplayWindowMemorySupport.validSnapshotIDs(previous: identities(candidates),
                     current: identities(current), previousEvents: events, currentEvents: eventVersions)
                 let complete = valid.count == candidates.count && valid.count == current.count
+                // Cancelled scans cannot retire subscriptions or publish a
+                // partial reconnect/layout snapshot. Pending events run next.
+                guard !query.isCancelled else { return }
                 var elements = resolved.elements
                 // Subscribe even before a launched app exposes its first window.
                 if let scopedPID {

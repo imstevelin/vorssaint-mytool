@@ -30,7 +30,8 @@ final class DisplayWindowAXCache {
         else { entries.removeAll() }
     }
 
-    func resolve(_ keys: [Key], scopedPID: pid_t? = nil) -> (eligible: Set<Key>, elements: [pid_t: [AXUIElement]]) {
+    func resolve(_ keys: [Key], scopedPID: pid_t? = nil,
+                 cancellation: DispatchWorkItem? = nil) -> (eligible: Set<Key>, elements: [pid_t: [AXUIElement]]) {
         let now = clock()
         let wanted = Set(keys)
         entries = entries.filter { (scopedPID != nil && $0.key.pid != scopedPID) || wanted.contains($0.key) }
@@ -38,6 +39,7 @@ final class DisplayWindowAXCache {
         var accepted = Set<Key>()
         var elements: [pid_t: [AXUIElement]] = [:]
         for key in keys {
+            guard cancellation?.isCancelled != true else { break }
             var cached = entries[key]
             if cached == nil || now - cached!.readAt >= 5 {
                 if appWindows[key.pid] == nil {

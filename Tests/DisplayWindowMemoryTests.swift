@@ -428,6 +428,7 @@ enum DisplayWindowEventSchedulingTests {
         var pendingEventPIDs = Set<pid_t>()
         var eventWork: DispatchWorkItem?
         var queryInFlight = false
+        var activeQuery: DispatchWorkItem?
         var scans: [pid_t] = []
         func scan(targetPID: pid_t) { scans.append(targetPID) }
     }
@@ -447,11 +448,15 @@ enum DisplayWindowEventSchedulingTests {
         drain()
         suite.expect(service.scans == [123], "window events coalesce on the next queue turn without a debounce timer")
         service.queryInFlight = true
+        let obsolete = DispatchWorkItem {}
+        service.activeQuery = obsolete
         service.requestEventScan(456)
+        suite.expect(obsolete.isCancelled, "a new window event cancels obsolete background AX work immediately")
         drain()
         suite.expect(service.scans == [123] && service.pendingEventPIDs.contains(456),
                      "events arriving during AX I/O remain pending instead of waiting for polling")
         service.queryInFlight = false
+        service.activeQuery = nil
         service.requestEventScan(456)
         drain()
         suite.expect(service.scans == [123, 456], "pending events query only their affected app")
