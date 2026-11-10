@@ -215,6 +215,18 @@ enum DisplayWindowMemorySupport {
                width: visibleFrame.width, height: visibleFrame.height)
     }
 
+    static func readyForOpening(screenSize: CGSize, displayBounds: CGRect, usableBounds: CGRect,
+                                online: Bool, active: Bool) -> Bool {
+        let values = [screenSize.width, screenSize.height, displayBounds.minX, displayBounds.minY,
+                      displayBounds.width, displayBounds.height, usableBounds.minX, usableBounds.minY,
+                      usableBounds.width, usableBounds.height]
+        return online && active && values.allSatisfy(\.isFinite)
+            && displayBounds.width > 0 && displayBounds.height > 0
+            && usableBounds.width > 0 && usableBounds.height > 0
+            && close(screenSize, displayBounds.size)
+            && displayBounds.insetBy(dx: -2, dy: -2).contains(usableBounds)
+    }
+
     static func fittedFrame(_ frame: CGRect, within bounds: CGRect) -> CGRect {
         let width = min(max(frame.width, 1), bounds.width)
         let height = min(max(frame.height, 1), bounds.height)
