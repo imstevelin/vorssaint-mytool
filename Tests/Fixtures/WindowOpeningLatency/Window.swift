@@ -2,6 +2,7 @@ import AppKit
 @main struct WindowFixture {
     static var window: NSWindow?
     static var started: TimeInterval = 0
+    static var resizeObserver: NSObjectProtocol?
     static let deadline = ProcessInfo.processInfo.systemUptime + 8
     static func main() {
         let app = NSApplication.shared
@@ -16,9 +17,12 @@ import AppKit
                               styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
             window?.isReleasedWhenClosed = false
             window?.title = "Window opening latency fixture"
+            resizeObserver = NotificationCenter.default.addObserver(forName: NSWindow.didResizeNotification,
+                object: window, queue: .main) { _ in checkPlacement() }
             started = ProcessInfo.processInfo.systemUptime
             window?.orderFront(nil)
             checkPlacement()
+            DispatchQueue.main.asyncAfter(deadline: .now()+3) { print("fixture placement timed out"); exit(2) }
         } else {
             DispatchQueue.main.asyncAfter(deadline: .now()+0.01, execute: waitForController)
         }
@@ -30,7 +34,6 @@ import AppKit
             window?.close()
             exit(0)
         }
-        guard elapsed < 3 else { print("fixture placement timed out"); exit(2) }
-        DispatchQueue.main.asyncAfter(deadline: .now()+0.005, execute: checkPlacement)
+        // Completion follows the actual native resize event, not a sampling timer.
     }
 }

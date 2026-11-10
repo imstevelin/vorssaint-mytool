@@ -260,7 +260,8 @@ final class DisplayWindowMemoryService {
     private func scan(targetPID: pid_t? = nil) {
         guard timer != nil, !managedDisplayTransition, AXIsProcessTrusted(),
               SessionActivity.shared.isActive else { return }
-        guard Date() >= scanResumeAt else {
+        let hasOpening = targetPID.flatMap { openingWindows[$0] }?.isEmpty == false
+        guard Date() >= scanResumeAt || (hasOpening && openingDisplaysReady()) else {
             if let targetPID { pendingEventPIDs.insert(targetPID) }
             return
         }
@@ -461,6 +462,12 @@ final class DisplayWindowMemoryService {
                     pendingEventPIDs.insert(pid)
                     return
                 }
+                let earlyOpening = Date() < scanResumeAt && openingDisplaysReady()
+                guard Date() >= scanResumeAt || earlyOpening else {
+                    openingWindows[pid, default: []].append(contentsOf: elements)
+                    pendingEventPIDs.insert(pid)
+                    return
+                }
                 let visible = visibleWindows()
                 trackInteraction(visible)
                 for (display, items) in profiles {
@@ -478,7 +485,7 @@ final class DisplayWindowMemoryService {
                 }
                 defer { for window in candidates { openingElements.removeValue(forKey: window.id) } }
                 processWindows(candidates, capturesLayout: false, manualWindowIDs: Set(interaction.claimed.keys),
-                               openingPeers: visible + candidates, restoresPendingLayout: false)
+                               openingPeers: visible + candidates, restoresPendingLayout: false, allowsEarlyOpening: earlyOpening)
                 windowEvents.update([pid: elements], replacingAll: false, mergingWindows: true)
             }
         }
@@ -513,9 +520,10 @@ final class DisplayWindowMemoryService {
     private func processWindows(_ windows: [VisibleWindow], capturesLayout: Bool = true,
                                 deferredOpeningWindows: Set<CGWindowID> = [],
                                 manualWindowIDs: Set<CGWindowID> = [],
-                                openingPeers: [VisibleWindow]? = nil, restoresPendingLayout: Bool = true) {
+                                openingPeers: [VisibleWindow]? = nil, restoresPendingLayout: Bool = true,
+                                allowsEarlyOpening: Bool = false) {
         guard !managedDisplayTransition, AXIsProcessTrusted(), SessionActivity.shared.isActive,
-              Date() >= scanResumeAt else { return }
+              (Date() >= scanResumeAt || (allowsEarlyOpening && openingDisplaysReady())) else { return }
         let now = Date()
         if NSEvent.pressedMouseButtons != 0 {
             interactionResumeAt = now
@@ -554,6 +562,9 @@ final class DisplayWindowMemoryService {
                 if previous?.pid != window.pid || previous?.bundleID != window.bundleID {
                     previous = nil // WindowServer can recycle a closed window's ID.
                 }
+                // A duplicate creation notification for an existing CG window
+                // must not opt that window out of the ordinary reflow wait.
+                if allowsEarlyOpening, now < scanResumeAt, previous != nil { continue }
                 if manualWindowIDs.contains(window.id) {
                     // A user drag consumes any pending opening/topology restore.
                     previous = Observation(pid: window.pid, bundleID: window.bundleID,
@@ -776,6 +787,19 @@ final class DisplayWindowMemoryService {
             resizable: resizable.boolValue,
             hasMinimizeButton: minimizeEnabled as? Bool == true)
             && (attribute("AXFullScreen") as? Bool != true)
+    }
+
+    /// Existing windows still wait for app reflow. New AX windows may use a
+    /// coherent work area sooner; managed HiDPI retains its verification gate.
+    private func openingDisplaysReady() -> Bool {
+        guard !managedDisplayTransition, displayGeometry() == knownDisplayGeometry,
+              !NSScreen.screens.isEmpty else { return false }
+        return NSScreen.screens.allSatisfy { screen in
+            guard let id = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? CGDirectDisplayID else { return false }
+            return DisplayWindowMemorySupport.readyForOpening(screenSize: screen.frame.size,
+                displayBounds: displayBounds(screen), usableBounds: usableBounds(screen),
+                online: CGDisplayIsOnline(id) != 0, active: CGDisplayIsActive(id) != 0)
+        }
     }
 
     private func displayGeometry() -> [String: CGRect] {

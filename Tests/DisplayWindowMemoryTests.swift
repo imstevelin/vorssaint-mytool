@@ -35,6 +35,19 @@ enum DisplayWindowMemoryTests {
         suite.expect(usable == CGRect(x: 1920, y: 56, width: 1920, height: 1000),
                      "display memory converts AppKit visible frame to CG coordinates")
 
+        func ready(_ size: CGSize = CGSize(width: 1920, height: 1080),
+                   bounds: CGRect = CGRect(x: 1920, y: 0, width: 1920, height: 1080),
+                   work: CGRect = CGRect(x: 1920, y: 56, width: 1920, height: 1000),
+                   online: Bool = true, active: Bool = true) -> Bool {
+            DisplayWindowMemorySupport.readyForOpening(screenSize: size, displayBounds: bounds,
+                usableBounds: work, online: online, active: active)
+        }
+        suite.expect(ready(), "coherent online geometry permits early opening")
+        suite.expect(!ready(CGSize(width: 1512, height: 982)) && !ready(online: false) && !ready(active: false),
+                     "stale AppKit sizes and unavailable displays cannot permit early opening")
+        suite.expect(!ready(work: CGRect(x: 4000, y: 0, width: 500, height: 400))
+            && !ready(work: .zero) && !ready(CGSize(width: CGFloat.nan, height: 1080)),
+                     "offscreen, empty and nonfinite work areas retain the safe wait")
         let restored = DisplayWindowMemorySupport.fittedFrame(
             CGRect(x: 3000, y: 850, width: 1300, height: 1000), within: usable)
         suite.expect(restored == CGRect(x: 2540, y: 56, width: 1300, height: 1000),
@@ -241,6 +254,8 @@ enum DisplayWindowMemoryScanTests {
     }
     class Fixture {
         var managedDisplayTransition = false
+        var displaysReady = true
+        func openingDisplaysReady() -> Bool { displaysReady }
         var scanResumeAt = Date.distantPast
         var captureResumeAt = Date.distantPast
         var interactionResumeAt = Date.distantPast
@@ -312,6 +327,33 @@ enum DisplayWindowMemoryScanTests {
         reconnectEvent.scan()
         suite.expect(reconnectEvent.layoutCandidates.isEmpty && reconnectEvent.writes.count == 1,
                      "the later full reconnect layout cannot move a new window whose creation restore was already consumed")
+        let early = Service()
+        early.memory = service.memory
+        early.scanResumeAt = Date().addingTimeInterval(0.6)
+        let earlyWindow = window(original.offsetBy(dx: 90, dy: 100), id: 96)
+        early.processWindows([earlyWindow], capturesLayout: false, openingPeers: [], restoresPendingLayout: false,
+                             allowsEarlyOpening: true)
+        suite.expect(early.writes == [original], "new AX windows can restore before the existing-window reflow timer when displays are ready")
+        for managed in [false, true] {
+            let blocked = Service()
+            blocked.memory = service.memory
+            blocked.scanResumeAt = Date().addingTimeInterval(0.6)
+            blocked.displaysReady = managed
+            blocked.managedDisplayTransition = managed
+            blocked.processWindows([earlyWindow], capturesLayout: false, allowsEarlyOpening: true)
+            suite.expect(blocked.writes.isEmpty && blocked.observations.isEmpty,
+                         "incoherent geometry and managed HiDPI transitions retain the barrier")
+        }
+        early.scanResumeAt = Date().addingTimeInterval(0.6)
+        early.transitionGeneration += 1
+        early.processWindows([earlyWindow], capturesLayout: false, allowsEarlyOpening: true)
+        suite.expect(early.writes.count == 1,
+                     "duplicate creation events cannot opt existing windows out of the reflow barrier")
+        let existing = Service()
+        existing.memory = service.memory
+        existing.scanResumeAt = Date().addingTimeInterval(0.6)
+        existing.processWindows([earlyWindow])
+        suite.expect(existing.writes.isEmpty, "ordinary scans and existing windows retain the reflow wait")
         let beforeVisibility = Service()
         beforeVisibility.memory = service.memory
         let created = window(original.offsetBy(dx: 90, dy: 100), id: 99)

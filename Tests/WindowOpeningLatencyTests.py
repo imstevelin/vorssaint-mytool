@@ -23,6 +23,7 @@ def main():
     parser.add_argument('--baseline')
     parser.add_argument('--trace', action='store_true')
     parser.add_argument('--reconnect', action='store_true')
+    parser.add_argument('--settling', action='store_true')
     args = parser.parse_args()
     def source(path):
         if args.baseline:
@@ -43,7 +44,8 @@ def main():
         (temp / 'Observer.swift').write_text(observer)
         service = source(SERVICE)
         if args.trace:
-            service = service.replace('self.eventVersions[pid, default: 0] += 1', 'trace("event created=\\(window != nil)"); self.eventVersions[pid, default: 0] += 1')
+            event_trace = 'trace("event created=\\(window != nil)"); ' if 'pid, window in' in service else 'trace("event"); '
+            service = service.replace('self.eventVersions[pid, default: 0] += 1', event_trace + 'self.eventVersions[pid, default: 0] += 1')
             service = service.replace('let openings = elements.compactMap', 'trace("opening query"); let openings = elements.compactMap')
             service = service.replace('// Cold title records', 'trace("opening results=\\(openings.count)"); // Cold title records')
             service = service.replace('processWindows(candidates, capturesLayout:', 'trace("opening candidates=\\(candidates.count)"); processWindows(candidates, capturesLayout:')
@@ -53,6 +55,7 @@ def main():
     func fixtureStart(pid: pid_t, ready: URL) {
         syncWithPreferences()
         if CommandLine.arguments.contains("--reconnect") { pendingLayoutDisplays = Set(displayGeometry().keys) }
+        if CommandLine.arguments.contains("--settling") { scanResumeAt = Date().addingTimeInterval(0.6) }
         windowEvents.fixtureReady(pid: pid) {
             WindowServerSnapshot.fixturePID = pid
             WindowServerSnapshot.hiddenUntil = ProcessInfo.processInfo.systemUptime+0.25
@@ -82,13 +85,13 @@ def main():
         subprocess.run(['swiftc', '-parse-as-library', '-sdk', sdk, '-o', str(executable), str(FIXTURES / 'Window.swift')], check=True)
         ready = temp / 'ready'
         window = subprocess.Popen([str(executable), str(ready)], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-        control = subprocess.Popen([str(controller), str(window.pid), bundle_id, str(ready)] + (['--reconnect'] if args.reconnect else []), stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        control = subprocess.Popen([str(controller), str(window.pid), bundle_id, str(ready)] + (['--reconnect'] if args.reconnect else []) + (['--settling'] if args.settling else []), stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
         try:
             out, err = window.communicate(timeout=12)
             if window.returncode:
                 raise RuntimeError(f'fixture failed ({window.returncode}): {out} {err}')
             result = json.loads(out)
-            print(json.dumps({'source': args.baseline or 'working-tree', 'snapshot_lag_ms': 250, 'pending_reconnect_layout': args.reconnect, **result}))
+            print(json.dumps({'source': args.baseline or 'working-tree', 'snapshot_lag_ms': 250, 'pending_reconnect_layout': args.reconnect, 'existing_window_settle_ms': 600 if args.settling else 0, **result}))
             if not args.baseline and result['placement_ms'] >= 250:
                 raise AssertionError('first placement waited for on-screen visibility instead of the AX creation handle')
         finally:
