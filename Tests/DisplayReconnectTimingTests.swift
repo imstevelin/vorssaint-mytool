@@ -37,6 +37,10 @@ enum DisplayReconnectTimingTests {
         var scanResumeAt = Date.distantPast
         var timer: Bool? = true
         var scans = 0
+        var openingWindows: [pid_t: [Int]] = [:]
+        var pendingEventPIDs = Set<pid_t>()
+        var requestedPIDs: [pid_t] = []
+        func requestEventScan(_ pid: pid_t) { requestedPIDs.append(pid) }
         func displayGeometry() -> [String: CGRect] { geometry }
         func scan() { scans += 1 }
     }
@@ -80,6 +84,13 @@ enum DisplayReconnectTimingTests {
         memory.beginManagedDisplayTransition() // Supersede the queued end callback.
         DispatchQueue.main.drain()
         suite.expect(memory.scans == 1, "an old settle callback cannot run inside a new HiDPI transition")
+        let opening = MemoryService()
+        opening.pendingEventPIDs = [123]
+        opening.beginManagedDisplayTransition()
+        opening.endManagedDisplayTransition()
+        DispatchQueue.main.drain()
+        suite.expect(opening.requestedPIDs == [123],
+                     "display readiness immediately resumes a deferred first-window event without waiting for polling")
         memory.endManagedDisplayTransition(); memory.timer = nil
         DispatchQueue.main.drain()
         suite.expect(memory.scans == 1, "stopping display memory cancels pending restoration callbacks")

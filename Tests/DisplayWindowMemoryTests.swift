@@ -266,8 +266,9 @@ enum DisplayWindowMemoryScanTests {
             }
             return true
         }
-        func restoreLayouts(on displays: Set<String>, available windows: [VisibleWindow]) {
+        func restoreLayouts(on displays: Set<String>, available windows: [VisibleWindow]) -> Set<CGWindowID> {
             layoutCandidates = windows.map(\.id)
+            return []
         }
         func persist() { persists += 1 }
     }
@@ -291,6 +292,38 @@ enum DisplayWindowMemoryScanTests {
         service.scan()
         suite.expect(service.writes == [original],
                      "production scan restores a reopened window's position even without a size change")
+        let afterReconnect = Service()
+        afterReconnect.memory = service.memory
+        afterReconnect.defaults.layouts = true
+        afterReconnect.pendingLayoutDisplays = [screen.key]
+        afterReconnect.windows = [window(original.offsetBy(dx: 90, dy: 100), id: 98)]
+        afterReconnect.scan()
+        suite.expect(afterReconnect.writes == [original],
+                     "an unmatched first window restores in the same pass as the reconnect layout instead of the next poll")
+        let reconnectEvent = Service()
+        reconnectEvent.memory = service.memory
+        reconnectEvent.defaults.layouts = true
+        reconnectEvent.pendingLayoutDisplays = [screen.key]
+        reconnectEvent.processWindows([window(original.offsetBy(dx: 90, dy: 100), id: 97)], capturesLayout: false,
+                                      openingPeers: [], restoresPendingLayout: false)
+        suite.expect(reconnectEvent.writes == [original] && reconnectEvent.pendingLayoutDisplays == [screen.key],
+                     "a fresh AX-created window restores immediately without consuming the pending full reconnect layout")
+        reconnectEvent.windows = [window(original, id: 97)]
+        reconnectEvent.scan()
+        suite.expect(reconnectEvent.layoutCandidates.isEmpty && reconnectEvent.writes.count == 1,
+                     "the later full reconnect layout cannot move a new window whose creation restore was already consumed")
+        let beforeVisibility = Service()
+        beforeVisibility.memory = service.memory
+        let created = window(original.offsetBy(dx: 90, dy: 100), id: 99)
+        // The production restore accepts the created AX window before it is
+        // present in the fixture's WindowServer on-screen list.
+        beforeVisibility.processWindows([created], capturesLayout: false, openingPeers: [])
+        suite.expect(beforeVisibility.writes == [original] && beforeVisibility.observations[99] != nil,
+                     "a creation notification restores before WindowServer exposes the first visible window")
+        beforeVisibility.windows = [window(original, id: 99)]
+        beforeVisibility.scan()
+        suite.expect(beforeVisibility.writes.count == 1,
+                     "the first visible snapshot cannot repeat the early AX-created restore")
         let cascade = Service()
         cascade.memory = service.memory
         let newOrigin = original.origin.applying(CGAffineTransform(translationX: 32, y: 32))
@@ -426,6 +459,7 @@ enum DisplayWindowEventSchedulingTests {
     enum NSEvent { static var pressedMouseButtons = 0 }
     class Fixture {
         var pendingEventPIDs = Set<pid_t>()
+        var openingWindows: [pid_t: [Int]] = [:]
         var eventWork: DispatchWorkItem?
         var queryInFlight = false
         var activeQuery: DispatchWorkItem?
@@ -460,6 +494,15 @@ enum DisplayWindowEventSchedulingTests {
         service.requestEventScan(456)
         drain()
         suite.expect(service.scans == [123, 456], "pending events query only their affected app")
+        service.openingWindows[900] = [1]
+        service.requestEventScan(800)
+        service.requestEventScan(900)
+        drain()
+        suite.expect(service.scans.last == 900,
+                     "a first-window handle is prioritized over unrelated focus or move events")
+        service.pendingEventPIDs.removeAll()
+        service.openingWindows.removeAll()
+        service.scans = [123, 456]
         NSEvent.pressedMouseButtons = 1
         service.requestEventScan(789)
         drain()

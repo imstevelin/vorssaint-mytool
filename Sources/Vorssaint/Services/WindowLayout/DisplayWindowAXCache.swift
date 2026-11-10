@@ -117,19 +117,20 @@ final class DisplayWindowAXCache {
 final class DisplayWindowEventObserver {
     private final class Subscription {
         let pid: pid_t
-        let changed: (pid_t) -> Void
+        let changed: (pid_t, AXUIElement?) -> Void
         var observer: AXObserver?
         var elements: [AXUIElement] = []
-        init(pid: pid_t, changed: @escaping (pid_t) -> Void) { self.pid = pid; self.changed = changed }
+        var settledAppNotifications = Set<String>()
+        init(pid: pid_t, changed: @escaping (pid_t, AXUIElement?) -> Void) { self.pid = pid; self.changed = changed }
 
     }
-    private let queue = DispatchQueue(label: "com.vorssaint.window-memory-events", qos: .utility)
+    private let queue = DispatchQueue(label: "com.vorssaint.window-memory-events", qos: .userInitiated)
     private var subscriptions: [pid_t: Subscription] = [:] // queue only.
-    private let changed: (pid_t) -> Void
-    init(changed: @escaping (pid_t) -> Void) { self.changed = changed }
+    private let changed: (pid_t, AXUIElement?) -> Void
+    init(changed: @escaping (pid_t, AXUIElement?) -> Void) { self.changed = changed }
 
-    func update(_ elements: [pid_t: [AXUIElement]], replacingAll: Bool = true) {
-        queue.async { [self] in updateOnQueue(elements, replacingAll: replacingAll) }
+    func update(_ elements: [pid_t: [AXUIElement]], replacingAll: Bool = true, mergingWindows: Bool = false) {
+        queue.async { [self] in updateOnQueue(elements, replacingAll: replacingAll, mergingWindows: mergingWindows) }
     }
 
     private func retire(_ subscription: Subscription) {
@@ -139,7 +140,7 @@ final class DisplayWindowEventObserver {
         DispatchQueue.main.async { Unmanaged.passUnretained(subscription).release() }
     }
 
-    private func updateOnQueue(_ elements: [pid_t: [AXUIElement]], replacingAll: Bool) {
+    private func updateOnQueue(_ elements: [pid_t: [AXUIElement]], replacingAll: Bool, mergingWindows: Bool) {
         for (pid, subscription) in subscriptions where replacingAll && elements[pid] == nil {
             retire(subscription)
             subscriptions.removeValue(forKey: pid)
@@ -149,23 +150,33 @@ final class DisplayWindowEventObserver {
             if let existing = subscriptions[pid] { subscription = existing }
             else {
                 subscription = Subscription(pid: pid, changed: changed)
-                let callback: AXObserverCallback = { _, _, _, context in
+                let callback: AXObserverCallback = { _, element, notification, context in
                     guard let context else { return }
                     let subscription = Unmanaged<Subscription>.fromOpaque(context).takeUnretainedValue()
-                    subscription.changed(subscription.pid)
+                    subscription.changed(subscription.pid, notification as String == kAXWindowCreatedNotification ? element : nil)
                 }
                 var observer: AXObserver?
                 guard AXObserverCreate(pid, callback, &observer) == .success, let observer else { continue }
                 subscription.observer = observer
                 subscriptions[pid] = subscription
-                let context = Unmanaged.passRetained(subscription).toOpaque()
-                let app = AXUIElementCreateApplication(pid)
-                for name in [kAXWindowCreatedNotification, kAXFocusedWindowChangedNotification] {
-                    AXObserverAddNotification(observer, app, name as CFString, context)
-                }
+                _ = Unmanaged.passRetained(subscription)
                 CFRunLoopAddSource(CFRunLoopGetMain(), AXObserverGetRunLoopSource(observer), .commonModes)
             }
             guard let observer = subscription.observer else { continue }
+            let app = AXUIElementCreateApplication(pid)
+            AXUIElementSetMessagingTimeout(app, 0.05)
+            for name in [kAXWindowCreatedNotification, kAXFocusedWindowChangedNotification]
+                where !subscription.settledAppNotifications.contains(name) {
+                let status = AXObserverAddNotification(observer, app, name as CFString,
+                    Unmanaged.passUnretained(subscription).toOpaque())
+                // Retry transient startup failures, not permanently unsupported notifications.
+                if status == .success || status == .notificationAlreadyRegistered || status == .notificationUnsupported {
+                    subscription.settledAppNotifications.insert(name)
+                }
+            }
+            let windows = mergingWindows
+                ? subscription.elements + windows.filter { new in !subscription.elements.contains { CFEqual(new, $0) } }
+                : windows
             // Keep subscriptions stable when the same AX handles are returned.
             let removed = subscription.elements.filter { old in !windows.contains { CFEqual(old, $0) } }
             let added = windows.filter { new in !subscription.elements.contains { CFEqual(new, $0) } }
@@ -175,6 +186,7 @@ final class DisplayWindowEventObserver {
                 for name in names { AXObserverRemoveNotification(observer, window, name as CFString) }
             }
             for window in added {
+                AXUIElementSetMessagingTimeout(window, 0.05)
                 for name in names {
                     AXObserverAddNotification(observer, window, name as CFString, Unmanaged.passUnretained(subscription).toOpaque())
                 }
