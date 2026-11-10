@@ -44,11 +44,18 @@ final class DisplayWindowMemoryService {
     private var persistedProfiles: [String: [String: RememberedWindowGeometry]] = [:]
     private var profileTouches: [String: [String: TimeInterval]] = [:]
     private var pendingEventPIDs = Set<pid_t>()
+    private var openingWindows: [pid_t: [AXUIElement]] = [:]
+    private var openingElements: [CGWindowID: AXUIElement] = [:]
     private var mouseInteractionMonitor: Any?
     private var workspaceObservers: [NSObjectProtocol] = []
-    private lazy var windowEvents = DisplayWindowEventObserver { [weak self] pid in
+    private lazy var windowEvents = DisplayWindowEventObserver { [weak self] pid, window in
         guard let self, self.timer != nil else { return }
         self.eventVersions[pid, default: 0] += 1
+        if let window {
+            var pending = self.openingWindows[pid] ?? []
+            if !pending.contains(where: { CFEqual($0, window) }) { pending.append(window) }
+            self.openingWindows[pid] = pending
+        }
         self.requestEventScan(pid)
     }
 
@@ -61,7 +68,8 @@ final class DisplayWindowMemoryService {
         let work = DispatchWorkItem { [weak self] in
             guard let self else { return }
             self.eventWork = nil
-            guard let pid = self.pendingEventPIDs.first else { return }
+            guard let pid = self.pendingEventPIDs.first(where: { self.openingWindows[$0] != nil })
+                ?? self.pendingEventPIDs.first else { return }
             self.pendingEventPIDs.remove(pid)
             self.scan(targetPID: pid)
         }
@@ -121,6 +129,7 @@ final class DisplayWindowMemoryService {
                 forName: name, object: nil, queue: .main
             ) { [weak self] notification in
                 guard let app = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication else { return }
+                self?.windowEvents.update([app.processIdentifier: []], replacingAll: false)
                 self?.requestEventScan(app.processIdentifier)
             })
         }
@@ -135,6 +144,11 @@ final class DisplayWindowMemoryService {
                 self.requestEventScan(pid)
             }
         }
+        let apps = NSWorkspace.shared.runningApplications.filter {
+            $0.activationPolicy == .regular && $0.processIdentifier != getpid()
+        }
+        windowEvents.update(Dictionary(apps.map { ($0.processIdentifier, [AXUIElement]()) },
+                                       uniquingKeysWith: { first, _ in first }))
         scan()
     }
 
@@ -173,6 +187,8 @@ final class DisplayWindowMemoryService {
         activeQuery?.cancel()
         eventWork?.cancel(); eventWork = nil
         pendingEventPIDs.removeAll()
+        openingWindows.removeAll()
+        openingElements.removeAll()
         if let mouseInteractionMonitor { NSEvent.removeMonitor(mouseInteractionMonitor) }
         mouseInteractionMonitor = nil
         workspaceObservers.forEach { NSWorkspace.shared.notificationCenter.removeObserver($0) }
@@ -213,7 +229,8 @@ final class DisplayWindowMemoryService {
         let generation = transitionGeneration
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
             guard let self, self.transitionGeneration == generation, self.timer != nil else { return }
-            self.scan()
+            if let pid = self.openingWindows.keys.first ?? self.pendingEventPIDs.first { self.requestEventScan(pid) }
+            else { self.scan() }
         }
     }
 
@@ -235,13 +252,18 @@ final class DisplayWindowMemoryService {
         // mouse interaction to finish before moving any windows.
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in
             guard let self, self.transitionGeneration == generation, self.timer != nil else { return }
-            self.scan()
+            if let pid = self.openingWindows.keys.first ?? self.pendingEventPIDs.first { self.requestEventScan(pid) }
+            else { self.scan() }
         }
     }
 
     private func scan(targetPID: pid_t? = nil) {
         guard timer != nil, !managedDisplayTransition, AXIsProcessTrusted(),
-              SessionActivity.shared.isActive, Date() >= scanResumeAt else { return }
+              SessionActivity.shared.isActive else { return }
+        guard Date() >= scanResumeAt else {
+            if let targetPID { pendingEventPIDs.insert(targetPID) }
+            return
+        }
         let allCandidates = visibleWindows()
         trackInteraction(allCandidates)
         // Event scans query only the affected app; unrelated slow AX clients
@@ -269,9 +291,14 @@ final class DisplayWindowMemoryService {
                     loadingStore = false
                     // Import legacy title profiles before allowing eviction.
                     if stored == nil || hasLegacy { persist() }
-                    scan()
+                    if let pid = openingWindows.keys.first { requestEventScan(pid) }
+                    else { scan() }
                 }
             }
+            return
+        }
+        if let targetPID, let windows = openingWindows.removeValue(forKey: targetPID), !windows.isEmpty {
+            restoreOpeningWindows(windows, pid: targetPID)
             return
         }
         let generation = lifecycleGeneration
@@ -387,6 +414,92 @@ final class DisplayWindowMemoryService {
         }
     }
 
+    /// AXWindowCreated can precede WindowServer's on-screen list. Query the
+    /// notification's actual handle, so the first placement does not wait for
+    /// another notification or the half-second fallback scan.
+    private func restoreOpeningWindows(_ elements: [AXUIElement], pid: pid_t) {
+        let generation = lifecycleGeneration
+        let transition = transitionGeneration
+        let bundleID = NSRunningApplication(processIdentifier: pid)?.bundleIdentifier
+        let displays = NSScreen.screens.compactMap { screen -> (key: String, bounds: CGRect)? in
+            displayKey(screen).map { ($0, displayBounds(screen)) }
+        }
+        queryInFlight = true
+        queryQueue.async { [self] in
+            let openings = elements.compactMap { element -> (CGWindowID, AXUIElement, CGRect, String?)? in
+                AXUIElementSetMessagingTimeout(element, 0.05)
+                guard let id = AXWindowResolver.windowID(for: element), eligible(element),
+                      let frame = openingGeometry(element) else { return nil }
+                var title: CFTypeRef?
+                _ = AXUIElementCopyAttributeValue(element, kAXTitleAttribute as CFString, &title)
+                return (id, element, frame, digest(title as? String))
+            }
+            // Cold title records remain serialized with ordinary profile I/O.
+            var profiles: [String: [String: RememberedWindowGeometry]] = [:]
+            if let bundleID {
+                for (_, _, frame, title) in openings {
+                    guard let title, let display = displays.max(by: {
+                        $0.bounds.intersection(frame).area < $1.bounds.intersection(frame).area
+                    })?.key else { continue }
+                    let key = DisplayWindowMemorySupport.profileKey(bundleID: bundleID, titleDigest: title)
+                    if let value = profileStore.profile(display: display, key: key) { profiles[display, default: [:]][key] = value }
+                }
+            }
+            DispatchQueue.main.async { [self] in
+                queryInFlight = false
+                defer {
+                    if timer != nil, let next = pendingEventPIDs.first { requestEventScan(next) }
+                }
+                guard timer != nil, lifecycleGeneration == generation, SessionActivity.shared.isActive, let bundleID else { return }
+                guard transitionGeneration == transition, !managedDisplayTransition else {
+                    openingWindows[pid, default: []].append(contentsOf: elements)
+                    pendingEventPIDs.insert(pid)
+                    return
+                }
+                if NSEvent.pressedMouseButtons != 0 {
+                    openingWindows[pid, default: []].append(contentsOf: elements)
+                    pendingEventPIDs.insert(pid)
+                    return
+                }
+                let visible = visibleWindows()
+                trackInteraction(visible)
+                for (display, items) in profiles {
+                    var stored = memory.displays[display] ?? RememberedDisplay()
+                    stored.openingFrames = (stored.openingFrames ?? [:]).merging(items) { current, _ in current }
+                    memory.displays[display] = stored
+                    persistedProfiles[display, default: [:]].merge(items) { _, cold in cold }
+                }
+                let candidates = openings.compactMap { id, element, frame, title -> VisibleWindow? in
+                    guard let screen = NSScreen.screens.max(by: {
+                        displayBounds($0).intersection(frame).area < displayBounds($1).intersection(frame).area
+                    }), displayBounds(screen).intersects(frame) else { return nil }
+                    openingElements[id] = element
+                    return VisibleWindow(id: id, pid: pid, bundleID: bundleID, titleDigest: title, frame: frame, screen: screen)
+                }
+                defer { for window in candidates { openingElements.removeValue(forKey: window.id) } }
+                processWindows(candidates, capturesLayout: false, manualWindowIDs: Set(interaction.claimed.keys),
+                               openingPeers: visible + candidates, restoresPendingLayout: false)
+                windowEvents.update([pid: elements], replacingAll: false, mergingWindows: true)
+            }
+        }
+    }
+
+    private func openingGeometry(_ element: AXUIElement) -> CGRect? {
+        var rawPosition: CFTypeRef?
+        var rawSize: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(element, kAXPositionAttribute as CFString, &rawPosition) == .success,
+              AXUIElementCopyAttributeValue(element, kAXSizeAttribute as CFString, &rawSize) == .success,
+              let rawPosition, let rawSize, CFGetTypeID(rawPosition) == AXValueGetTypeID(),
+              CFGetTypeID(rawSize) == AXValueGetTypeID() else { return nil }
+        var position = CGPoint.zero
+        var size = CGSize.zero
+        guard AXValueGetValue(rawPosition as! AXValue, .cgPoint, &position),
+              AXValueGetValue(rawSize as! AXValue, .cgSize, &size),
+              position.x.isFinite, position.y.isFinite, size.width.isFinite, size.height.isFinite,
+              size.width >= 100, size.height >= 100 else { return nil }
+        return CGRect(origin: position, size: size)
+    }
+
     private func trackInteraction(_ windows: [VisibleWindow]) {
         let current = Dictionary(windows.map {
             ($0.id, DisplayWindowMemorySupport.SnapshotIdentity(pid: $0.pid, bundleID: $0.bundleID, frame: $0.frame))
@@ -400,7 +513,7 @@ final class DisplayWindowMemoryService {
     private func processWindows(_ windows: [VisibleWindow], capturesLayout: Bool = true,
                                 deferredOpeningWindows: Set<CGWindowID> = [],
                                 manualWindowIDs: Set<CGWindowID> = [],
-                                openingPeers: [VisibleWindow]? = nil) {
+                                openingPeers: [VisibleWindow]? = nil, restoresPendingLayout: Bool = true) {
         guard !managedDisplayTransition, AXIsProcessTrusted(), SessionActivity.shared.isActive,
               Date() >= scanResumeAt else { return }
         let now = Date()
@@ -408,12 +521,17 @@ final class DisplayWindowMemoryService {
             interactionResumeAt = now
         }
         let interacting = NSEvent.pressedMouseButtons != 0 || now < interactionResumeAt
-        if !interacting, !pendingLayoutDisplays.isEmpty {
+        var layoutWindowIDs = Set<CGWindowID>()
+        var restoredLayout = false
+        if !interacting, restoresPendingLayout, !pendingLayoutDisplays.isEmpty {
             guard capturesLayout else { return } // Keep the full reconnect offer until the geometry settles.
             let displays = pendingLayoutDisplays
             pendingLayoutDisplays.removeAll()
             if defaults.bool(forKey: DefaultsKey.windowRestoreDisplayLayout) {
-                restoreLayouts(on: displays, available: windows.filter { !manualWindowIDs.contains($0.id) })
+                layoutWindowIDs = restoreLayouts(on: displays, available: windows.filter {
+                    !manualWindowIDs.contains($0.id) && observations[$0.id]?.state.generation != transitionGeneration
+                })
+                restoredLayout = true
                 for window in windows where manualWindowIDs.contains(window.id) {
                     guard let display = displayKey(window.screen) else { continue }
                     observations[window.id] = Observation(pid: window.pid, bundleID: window.bundleID,
@@ -421,7 +539,8 @@ final class DisplayWindowMemoryService {
                             stableSince: now, generation: transitionGeneration), lastSeen: now)
                 }
                 captureResumeAt = now.addingTimeInterval(2)
-                return // Never capture the pre-placement WindowServer snapshot.
+                // Continue with unmatched/new windows in this same pass. They
+                // have no saved layout slot and must not wait another timer tick.
             }
         }
         let rememberSizes = defaults.bool(forKey: DefaultsKey.windowRememberSizes)
@@ -429,7 +548,7 @@ final class DisplayWindowMemoryService {
         var dirty = false
         defer { if dirty { persist() } }
         if rememberSizes {
-            for window in windows {
+            for window in windows where !layoutWindowIDs.contains(window.id) {
                 guard let display = displayKey(window.screen) else { continue }
                 var previous = observations[window.id]
                 if previous?.pid != window.pid || previous?.bundleID != window.bundleID {
@@ -501,7 +620,7 @@ final class DisplayWindowMemoryService {
         } else {
             observations.removeAll()
         }
-        guard !interacting, !appliedFrame else { return }
+        guard !interacting, !appliedFrame, !restoredLayout else { return } // Do not capture pre-placement frames.
 
         if capturesLayout, defaults.bool(forKey: DefaultsKey.windowRestoreDisplayLayout), now >= captureResumeAt {
             var captured: [String: [RememberedWindow]] = [:]
@@ -529,8 +648,9 @@ final class DisplayWindowMemoryService {
         }
     }
 
-    private func restoreLayouts(on displays: Set<String>, available windows: [VisibleWindow]) {
-        guard !displays.isEmpty else { return }
+    private func restoreLayouts(on displays: Set<String>, available windows: [VisibleWindow]) -> Set<CGWindowID> {
+        guard !displays.isEmpty else { return [] }
+        var restored = Set<CGWindowID>()
         var available = windows
         for screen in NSScreen.screens {
             guard let key = displayKey(screen), displays.contains(key),
@@ -549,6 +669,7 @@ final class DisplayWindowMemoryService {
                 }) else { continue }
                 if setFrame(target, for: window) {
                     available.removeAll { $0.id == window.id }
+                    restored.insert(window.id)
                     observations[window.id] = Observation(
                         pid: window.pid, bundleID: window.bundleID,
                         state: DisplayWindowObservation(display: key, frame: target,
@@ -556,6 +677,7 @@ final class DisplayWindowMemoryService {
                 }
             }
         }
+        return restored
     }
 
     private func persist() {
@@ -683,15 +805,18 @@ final class DisplayWindowMemoryService {
     }
 
     private func setFrame(_ target: CGRect, for item: VisibleWindow) -> Bool {
-        let app = AXUIElementCreateApplication(item.pid)
-        AXUIElementSetMessagingTimeout(app, 0.1)
-        var raw: CFTypeRef?
-        guard AXUIElementCopyAttributeValue(app, kAXWindowsAttribute as CFString, &raw) == .success,
-              let windows = raw as? [AXUIElement] else { return false }
-        // Position alone is ambiguous for overlapping windows of the same app.
-        guard let window = windows.first(where: {
-            AXWindowResolver.windowID(for: $0) == item.id
-        }) else { return false }
+        let window: AXUIElement
+        if let opening = openingElements[item.id], AXWindowResolver.windowID(for: opening) == item.id {
+            window = opening
+        } else {
+            let app = AXUIElementCreateApplication(item.pid)
+            AXUIElementSetMessagingTimeout(app, 0.1)
+            var raw: CFTypeRef?
+            guard AXUIElementCopyAttributeValue(app, kAXWindowsAttribute as CFString, &raw) == .success,
+                  let windows = raw as? [AXUIElement],
+                  let resolved = windows.first(where: { AXWindowResolver.windowID(for: $0) == item.id }) else { return false }
+            window = resolved
+        }
         AXUIElementSetMessagingTimeout(window, 0.1)
         guard eligible(window) else { return false }
         var rawCurrentPosition: CFTypeRef?
