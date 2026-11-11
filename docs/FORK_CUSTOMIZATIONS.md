@@ -85,3 +85,9 @@ HiDPI 預設使用原生縮放，日常只需開關；方式選擇、面板校�
 換螢幕後的首次開窗須直接處理 AX 建立 handle；待還原的整體配置不能迫使新視窗再等一輪掃描，也不能在稍後重複移動已處理的新視窗。顯示器就緒與手動優先門檻保留。原生量測、重接回歸及驗收範圍見 [2026-11-11 首次開窗修正](verification/window-first-open-after-display-change-2026-11-11.md)。
 
 只有未觀察過的新 AX 視窗，在顯示器在線、啟用、AppKit／CG 尺寸及工作區一致且無受管理 HiDPI 切換時，才可提早繞過既有視窗的重排等待；一般掃描、舊 CG 視窗及重複建立通知保留原等待。詳見 [2026-11-11 進一步縮短等待](verification/window-early-opening-2026-11-11.md)。
+
+## 官方 v3.4.4 整合後的顯示與音訊接點
+
+官方螢幕音量路由接回 SystemOutputControl；當前輸出的既有手動綁定優先，清除綁定才恢復自動配對。設定與選單同一台螢幕只呈現一組音量控制，當前官方螢幕列也使用共用回饋入口。保留 CoreAudio 優先、DDC 失敗不重送、每次接受操作獨立回饋及全螢幕中央卡片；不替新選項自動開啟。
+
+XDG 設定使用 `vorssaint-imstevelin`／`vorssaint-imstevelin-dev`，不讀官方的 `vorssaint` 目錄。CoreAudioTapCompat／RecorderGIFCodec 與 fork 音訊例外及顯示 helper 同時存在，保留隨附 codec 授權。詳細決策與驗收界線見 [本輪同步](upstream-sync/2026-11-12.md)。

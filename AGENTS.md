@@ -21,6 +21,7 @@
 | `Sources/Vorssaint/UI/` | SwiftUI／AppKit 視圖、設定頁、島與工具面板 |
 | `Sources/DisplayRecovery*`、`Sources/VirtualDisplay*`、`Sources/NativeHiDPI*` | 顯示恢復、虛擬顯示 host／bridge、原生縮放覆寫與還原 helper |
 | `Sources/AudioFeedbackBridge/` | AVFAudio Objective-C 例外邊界，避免音訊裝置切換拖垮 Swift App |
+| `Sources/CoreAudioTapCompat/`、`Sources/RecorderGIFCodec/` | 早期 Sonoma 相容的音訊 tap 與原生 GIF codec；保留 vendor 來源及授權文件 |
 | `Sources/FanControlHelper/`、`Sources/NowPlayingAdapter/` | 風扇與 Now Playing 原生輔助元件 |
 | `Resources/` | Info.plist、圖示、entitlements 與封裝資源 |
 | `Tests/` | 行為回歸、來源產生器、原生 fixture 與安裝／移除隔離檢查 |
