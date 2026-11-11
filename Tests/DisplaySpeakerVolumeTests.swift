@@ -42,6 +42,7 @@ enum DisplaySpeakerVolumeTests {
         let workQueue = Queue()
         var running = true
         var wantsMonitorVolume = true
+        var hasExplicitHardwareAudioBinding = false
         var wantsMonitorVolumeKeys = true
         var monitorVolumeKeySettings = MonitorVolumeKeySettings()
         var displayPowerIsSuspended = false
@@ -135,6 +136,14 @@ enum DisplaySpeakerVolumeTests {
     }
 
     static func run(_ suite: TestSuite) {
+        let bindingMixer = MixerOutputAdjustmentContract.Mixer()
+        let bound = connect(bindingMixer)
+        suite.expect(bound.monitorSpeakerOutput() != nil, "unbound monitor audio can use automatic routing")
+        bound.hasExplicitHardwareAudioBinding = true
+        suite.expect(bound.monitorSpeakerOutput() == nil,
+                     "an explicit fork audio binding suppresses the competing automatic monitor route")
+        bound.hasExplicitHardwareAudioBinding = false
+        suite.expect(bound.monitorSpeakerOutput() != nil, "clearing an explicit binding restores automatic routing")
         suite.expect(BrightnessSupport.audioReply(current: 50, maximum: 100) == 0.5
                      && BrightnessSupport.audioReply(current: 100, maximum: 100) == 1,
                      "a volume reply is read against its own maximum")

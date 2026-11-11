@@ -317,7 +317,7 @@ struct EnergySettings: View {
                     ForEach(brightness.displays) { display in
                         VStack(alignment: .leading, spacing: 6) {
                             displayRow(display)
-                            if display.isActive, let audio = display.audio {
+                            if display.isActive, !brightness.usesHardwareAudioControls(for: display), let audio = display.audio {
                                 MonitorSpeakerVolumeRow(displayName: display.name, audio: audio,
                                                         strings: strings, compact: false)
                                     .padding(.leading, 38)

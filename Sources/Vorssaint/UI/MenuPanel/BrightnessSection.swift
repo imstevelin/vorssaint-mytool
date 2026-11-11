@@ -145,7 +145,7 @@ struct BrightnessSection: View {
             }
             DisplayHardwareControls(display: display, compact: true)
             SoftwareDimmingButton(display: display, compact: true)
-            if display.isActive, let audio = display.audio {
+            if display.isActive, !service.usesHardwareAudioControls(for: display), let audio = display.audio {
                 MonitorSpeakerVolumeRow(displayName: display.name, audio: audio, strings: strings, compact: true)
             }
         }
@@ -194,11 +194,22 @@ struct MonitorSpeakerVolumeRow: View {
     let strings: BrightnessFeatureStrings
     let compact: Bool
 
+    private func setSpeakers(volume: Double? = nil, muted: Bool? = nil) {
+        if let current = AppVolumeMixer.shared.monitorOutput,
+           current.target.displayID == audio.target.displayID,
+           current.target.path == audio.target.path,
+           current.target.connectionGeneration == audio.target.connectionGeneration {
+            SystemOutputControl.shared.requestAdjustment(volume: volume, muted: muted)
+        } else {
+            BrightnessService.shared.requestSpeakers(.set(volume: volume, muted: muted), target: audio.target)
+        }
+    }
+
     var body: some View {
         HStack(spacing: compact ? 6 : 12) {
             if let muted = audio.muted {
                 Button {
-                    BrightnessService.shared.requestSpeakers(.set(volume: nil, muted: !muted), target: audio.target)
+                    setSpeakers(muted: !muted)
                 } label: {
                     Image(systemName: muted ? "speaker.slash.fill" : "speaker.wave.2.fill")
                         .font(.system(size: compact ? 10 : 12, weight: .semibold))
@@ -215,7 +226,7 @@ struct MonitorSpeakerVolumeRow: View {
                     .frame(width: 16)
             }
             Slider(value: Binding(get: { audio.volume }, set: {
-                BrightnessService.shared.requestSpeakers(.set(volume: $0, muted: nil), target: audio.target)
+                setSpeakers(volume: $0)
             }),
                    in: 0...1)
                 .controlSize(compact ? .small : .regular)

@@ -3153,6 +3153,7 @@ final class BrightnessService: ObservableObject {
         bindings = bindings.filter { $0.value != identity }
         if let uid, !uid.isEmpty { bindings[uid] = identity }
         UserDefaults.standard.set(bindings, forKey: DisplayHardwarePreferences.audioBindings)
+        AppVolumeMixer.shared.refreshMonitorOutput()
         objectWillChange.send()
         PreciseVolumeRollerService.shared.syncWithPreferences()
     }
@@ -3161,6 +3162,14 @@ final class BrightnessService: ObservableObject {
         guard let identity = hardwareControls[id]?.identity else { return nil }
         let bindings = UserDefaults.standard.dictionary(forKey: DisplayHardwarePreferences.audioBindings) as? [String: String] ?? [:]
         return bindings.first { $0.value == identity }?.key
+    }
+
+    /// The selected output's explicit binding keeps the fork control surface;
+    /// other monitors use the official speaker row when it is available.
+    func usesHardwareAudioControls(for display: BrightnessDisplay) -> Bool {
+        guard display.audio != nil else { return true }
+        guard let uid = AppVolumeMixer.shared.currentOutputDeviceUID else { return false }
+        return boundAudioUID(for: display.id) == uid
     }
 
     var hardwareAudioDisplayID: CGDirectDisplayID? {
@@ -3449,8 +3458,15 @@ final class BrightnessService: ObservableObject {
 
     /// Main-thread snapshot. HAL only runs on an output change or during
     /// final validation on the DDC queue, never during a slider update.
+    private var hasExplicitHardwareAudioBinding: Bool {
+        guard let uid = AppVolumeMixer.shared.currentOutputDeviceUID else { return false }
+        let bindings = UserDefaults.standard.dictionary(forKey: DisplayHardwarePreferences.audioBindings) as? [String: String] ?? [:]
+        return bindings[uid] != nil
+    }
+
     func monitorSpeakerOutput() -> BrightnessSupport.MonitorSpeakerOutput? {
-        guard running, !displayPowerIsSuspended, wantsMonitorVolume, let output = selectedAudioOutput else { return nil }
+        guard running, !displayPowerIsSuspended, wantsMonitorVolume, !hasExplicitHardwareAudioBinding,
+              let output = selectedAudioOutput else { return nil }
         guard let id = stateLock.withLock({ BrightnessSupport.displayForAudioOutput(
             deviceName: output.name, candidates: audioDisplayNames) }),
               let audio = displays.first(where: { $0.id == id && $0.isActive })?.audio else { return nil }
