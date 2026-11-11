@@ -4,7 +4,7 @@
 import AppKit
 import SwiftUI
 
-/// A brief percentage overlay for every brightness route. The disabled
+/// A brief percentage overlay for brightness and monitor speaker presses. The disabled
 /// feature owns no window, observer or timer.
 enum BrightnessOSD {
     private static var panel: NSPanel?
@@ -13,21 +13,31 @@ enum BrightnessOSD {
     private static var generation = 0
 
     static func showVolume(displayID: CGDirectDisplayID, volume: Double, muted: Bool) {
-        show(displayID: displayID, brightness: muted ? 0 : volume, volumeSymbol: muted ? "speaker.slash.fill" : "speaker.wave.2.fill")
+        show(displayID: displayID, level: volume, kind: muted ? .mutedVolume : .volume)
     }
-    static func show(displayID: CGDirectDisplayID, brightness: Double, volumeSymbol: String? = nil) {
+    static func show(displayID: CGDirectDisplayID, brightness: Double) {
+        show(displayID: displayID, level: brightness)
+    }
+    /// Volume presses skip the island's brightness face, which is for brightness only.
+    static func show(displayID: CGDirectDisplayID, level: Double,
+                     kind: BrightnessOSDView.Kind = .brightness) {
         guard Thread.isMainThread else {
             DispatchQueue.main.async {
-                show(displayID: displayID, brightness: brightness, volumeSymbol: volumeSymbol)
+                show(displayID: displayID, level: level, kind: kind)
             }
             return
         }
-        if volumeSymbol == nil, NotchSupport.routes(.brightness), NotchService.shared.showBrightness(brightness) {
+        if kind == .brightness, NotchSupport.routes(.brightness), NotchService.shared.showBrightness(level) {
             return
         }
+        // A display mirroring another has no screen of its own; the overlay
+        // goes on the screen the mirror set shares, in hardware or software.
+        let sharedScreenID = CGDisplayPrimaryDisplay(displayID)
+        let mirroredID = CGDisplayMirrorsDisplay(displayID)
         guard let screen = NSScreen.screens.first(where: {
-            ($0.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?
-                .uint32Value == VirtualHiDPIService.desktopDisplay(for: displayID)
+            let number = ($0.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?.uint32Value
+            return number == displayID || number == sharedScreenID || number == mirroredID
+                || number == VirtualHiDPIService.desktopDisplay(for: displayID)
         }) else { return }
 
         // One hosting controller for the panel's lifetime: a slider drag
@@ -36,10 +46,10 @@ enum BrightnessOSD {
         let panel = ensurePanel()
         let host: NSHostingController<BrightnessOSDView>
         if let existing = Self.host {
-            existing.rootView = BrightnessOSDView(brightness: brightness, symbol: volumeSymbol ?? "sun.max.fill")
+            existing.rootView = BrightnessOSDView(level: level, kind: kind)
             host = existing
         } else {
-            host = NSHostingController(rootView: BrightnessOSDView(brightness: brightness, symbol: volumeSymbol ?? "sun.max.fill"))
+            host = NSHostingController(rootView: BrightnessOSDView(level: level, kind: kind))
             Self.host = host
             panel.contentViewController = host
         }
@@ -132,15 +142,29 @@ enum BrightnessOSD {
 /// Kept separate from the transient panel so the mandatory UI preview can
 /// host and inspect the exact shipped surface.
 struct BrightnessOSDView: View {
-    let brightness: Double
-    var symbol = "sun.max.fill"
+    enum Kind: Equatable {
+        case brightness
+        case volume
+        case mutedVolume
+    }
+
+    let level: Double
+    var kind: Kind = .brightness
 
     private var percentage: Int {
-        BrightnessSupport.wholePercent(brightness)
+        BrightnessSupport.wholePercent(level)
     }
 
     private var filledSegments: Int {
-        BrightnessSupport.filledBrightnessSegments(brightness)
+        BrightnessSupport.filledBrightnessSegments(level)
+    }
+
+    private var symbol: String {
+        switch kind {
+        case .brightness: "sun.max.fill"
+        case .volume: "speaker.wave.2.fill"
+        case .mutedVolume: "speaker.slash.fill"
+        }
     }
 
     var body: some View {

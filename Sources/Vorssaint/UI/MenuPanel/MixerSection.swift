@@ -476,7 +476,6 @@ struct MixerSection: View {
                                     visibleIDs: visibleApps.compactMap(\.persistenceID))
                         }
                     }))
-                .help(FeatureStrings.mixer(l10n.language).arrange)
         }
     }
 
@@ -895,6 +894,7 @@ private struct MixerRow: View {
     let moveDown: (() -> Void)?
 
     private var arrangementStrings: MixerFeatureStrings { FeatureStrings.mixer(l10n.language) }
+    private var sharingStrings: MixerScreenSharingStrings { .localized(l10n.language) }
 
     /// Warm accent to flag the boost range, darkened in Light Mode for contrast.
     private var boostColor: Color { PanelMetricColor.orange(for: colorScheme) }
@@ -922,6 +922,7 @@ private struct MixerRow: View {
                         .offset(x: -1, y: -1)
                 }
             }
+            .help(arrangementStrings.arrange)
 
             VStack(alignment: .leading, spacing: 5) {
                 HStack(spacing: 8) {
@@ -929,6 +930,7 @@ private struct MixerRow: View {
                         .font(.system(size: 11.5, weight: .medium))
                         .lineLimit(1)
                         .truncationMode(.middle)
+                        .help(arrangementStrings.arrange)
 
                     if isPinned {
                         Image(systemName: "pin.fill")
@@ -945,8 +947,8 @@ private struct MixerRow: View {
                         .menuStyle(.borderlessButton)
                         .menuIndicator(.hidden)
                         .fixedSize()
-                        .help(isPinned ? arrangementStrings.unpin : arrangementStrings.pin)
-                        .accessibilityLabel("\(isPinned ? arrangementStrings.unpin : arrangementStrings.pin): \(app.name)")
+                        .help(arrangementStrings.actions)
+                        .accessibilityLabel("\(arrangementStrings.actions): \(app.name)")
                     }
                     if !app.isBypassed {
                         outputPicker
@@ -954,13 +956,10 @@ private struct MixerRow: View {
                 }
 
                 if app.isBypassed {
-                    // Zoom and pro audio apps are listed but never tapped
-                    // (issue #177): the row explains itself instead of the
-                    // app silently missing from the mixer.
-                    Text(l10n.s.mixerBypassedCaption)
+                    Text(app.supportsVolumeOverride ? sharingStrings.protectedCaption : l10n.s.mixerBypassedCaption)
                         .font(.system(size: 10.5))
                         .foregroundStyle(.secondary)
-                        .lineLimit(2)
+                        .lineLimit(app.supportsVolumeOverride ? nil : 2)
                         .fixedSize(horizontal: false, vertical: true)
                 } else {
                     HStack(spacing: 8) {
@@ -1020,6 +1019,12 @@ private struct MixerRow: View {
                         .buttonStyle(.plain)
                     }
 
+                    if app.supportsVolumeOverride {
+                        Label(sharingStrings.sharingWarning, systemImage: "exclamationmark.triangle")
+                            .font(.system(size: 9.5))
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
                     if app.outputDeviceUnavailable {
                         Label(l10n.s.mixerOutputFallback, systemImage: "speaker.badge.exclamationmark")
                             .font(.system(size: 9.5))
@@ -1049,6 +1054,13 @@ private struct MixerRow: View {
         Button(action: togglePin) {
             Label(isPinned ? arrangementStrings.unpin : arrangementStrings.pin,
                   systemImage: isPinned ? "pin.slash" : "pin")
+        }
+        if app.supportsVolumeOverride {
+            Divider()
+            Toggle(sharingStrings.allowVolumeControl, isOn: Binding(
+                get: { !app.isBypassed },
+                set: { mixer.setCallAppVolumeControl($0, for: app) }))
+                .help(sharingStrings.sharingWarning)
         }
     }
 
@@ -1376,6 +1388,7 @@ private struct MixerVolumeSlider: View {
                 .accessibilityValue("\(percentage)%")
 #endif
         }
+        .overlay(SliderScrollArea(value: $value, range: 0...maximum))
     }
 
     private var nativeSlider: some View {

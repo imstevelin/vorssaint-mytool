@@ -188,3 +188,14 @@ extension BluetoothSleepStrings {
         unsupported: "На цьому Mac немає Bluetooth-контролера."
     )
 }
+
+/// Searchable title for the fork's selected-device recovery controls.
+struct BluetoothAudioRecoveryStrings {
+    let title: String
+    static func localized(_ language: AppLanguage) -> BluetoothAudioRecoveryStrings {
+        switch language {
+        case .zhTW, .zhHK, .zhHans: return .init(title: "藍牙喇叭連線修復")
+        default: return .init(title: "Bluetooth speaker recovery")
+        }
+    }
+}

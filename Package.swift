@@ -18,6 +18,10 @@ let package = Package(
         .executableTarget(name: "DisplayRecoveryHelper", dependencies: ["DisplayRecoverySupport"],
                           path: "Sources/DisplayRecoveryHelper"),
         .systemLibrary(
+            name: "CoreAudioTapCompat",
+            path: "Sources/CoreAudioTapCompat"
+        ),
+        .systemLibrary(
             name: "HIDEventSystem",
             path: "Sources/HIDEventSystem"
         ),
@@ -25,9 +29,14 @@ let package = Package(
             name: "VMStatisticsCompat",
             path: "Sources/VMStatisticsCompat"
         ),
+        .target(
+            name: "RecorderGIFCodec",
+            path: "Sources/RecorderGIFCodec",
+            sources: ["RecorderGIFCodec.c", "vendor/cgif/cgif_raw.c"]
+        ),
         .executableTarget(
             name: "Vorssaint",
-            dependencies: ["AudioFeedbackBridge", "VMStatisticsCompat", "HIDEventSystem", "VirtualDisplayBridge", "DisplayRecoverySupport"],
+            dependencies: ["AudioFeedbackBridge", "VMStatisticsCompat", "HIDEventSystem", "VirtualDisplayBridge", "DisplayRecoverySupport", "CoreAudioTapCompat", "RecorderGIFCodec"],
             path: "Sources/Vorssaint"
         )
     ]

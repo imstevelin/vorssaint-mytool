@@ -17,13 +17,16 @@ final class PreciseVolumeRollerService: ObservableObject {
     private var keyOwnership = PreciseVolumeKeyOwnership()
     private var notchKeyGate = NotchVolumeKeyGate()
     private var hardwareKeyGate = NotchVolumeKeyGate()
+    /// Monitor volume presses this tap claimed and has not yet seen released,
+    /// so their key-ups are consumed too. Main thread only: the tap runs there.
+    private var monitorVolumeKeysHeld: [BrightnessSupport.VolumeKeyAction: BrightnessSupport.SpeakerTarget] = [:]
     private init() {
         SessionActivity.shared.onChange { [weak self] _ in self?.syncWithPreferences() }
     }
 
     func syncWithPreferences() {
         VolumeFeedbackSound.shared.prepare(active: SessionActivity.shared.isActive)
-        let wanted = BrightnessService.shared.hardwareAudioDisplayID != nil || (AppFeature.mixer.isAvailable
+        let wanted = BrightnessService.shared.wantsMonitorVolumeKeys || BrightnessService.shared.hardwareAudioDisplayID != nil || (AppFeature.mixer.isAvailable
             && (UserDefaults.standard.bool(forKey: DefaultsKey.preciseVolumeRollerEnabled)
                 || (NotchSupport.routes(.volume) && NotchService.shared.acceptsUserInteraction)))
         if SessionActivitySupport.tapShouldRun(featureWanted: wanted,
@@ -56,6 +59,7 @@ final class PreciseVolumeRollerService: ObservableObject {
         notchKeyGate = NotchVolumeKeyGate()
         hardwareKeyGate = NotchVolumeKeyGate()
         keyOwnership = PreciseVolumeKeyOwnership()
+        monitorVolumeKeysHeld = [:]
     }
 
     private func start() {
@@ -114,6 +118,8 @@ final class PreciseVolumeRollerService: ObservableObject {
             return Unmanaged.passUnretained(event)
         }
         if routeHardwareVolume(nsEvent, event: event) { return nil }
+        if routeMonitorVolume(nsEvent, flags: event.flags) { return nil }
+        guard AppFeature.mixer.isAvailable else { return Unmanaged.passUnretained(event) }
         if routeNotchVolume(nsEvent, event: event) { return nil }
         guard UserDefaults.standard.bool(forKey: DefaultsKey.preciseVolumeRollerEnabled),
               let volumePress = Self.volumePress(fromData1: nsEvent.data1) else {
@@ -176,6 +182,94 @@ final class PreciseVolumeRollerService: ObservableObject {
         return true
     }
 
+    /// Routes a volume press to the monitor the sound plays through, when macOS
+    /// cannot set that output's volume. Every other press keeps its path. The
+    /// tap only queues the change. All device I/O happens on the DDC queue.
+    private func routeMonitorVolume(_ nsEvent: NSEvent, flags: CGEventFlags) -> Bool {
+        guard let press = BrightnessSupport.volumeKeyEvent(
+            subtype: Int(nsEvent.subtype.rawValue), data1: nsEvent.data1) else { return false }
+        if !press.isKeyDown {
+            return monitorVolumeKeysHeld.removeValue(forKey: press.action) != nil
+        }
+        let held = monitorVolumeKeysHeld[press.action]
+        if !press.isRepeat { monitorVolumeKeysHeld[press.action] = nil }
+        if press.isRepeat && held == nil { return false }
+        guard let fine = BrightnessSupport.volumeKeyFineness(
+            option: flags.contains(.maskAlternate), shift: flags.contains(.maskShift),
+            commandOrControl: !flags.isDisjoint(with: [.maskCommand, .maskControl])),
+              BrightnessService.shared.wantsMonitorVolumeKeys,
+              let output = AppVolumeMixer.shared.monitorOutput,
+              press.action != .toggleMute || output.muted != nil else {
+            if !press.isRepeat {
+                DispatchQueue.main.async { BrightnessService.shared.rescanForUnclaimedVolumeKey() }
+            }
+            return press.isRepeat && held != nil
+        }
+        if press.isRepeat, held != output.target || press.action == .toggleMute { return true }
+        monitorVolumeKeysHeld[press.action] = output.target
+        let action = press.action
+        // The precise volume setting applies to the monitor as it does to any
+        // other output: wheel bursts are thinned by the same gate and each
+        // accepted click takes the fine step.
+        let precise = AppFeature.mixer.isAvailable
+            && UserDefaults.standard.bool(forKey: DefaultsKey.preciseVolumeRollerEnabled)
+        if precise, case let .step(direction) = action,
+           !gate.accepts(direction > 0 ? .up : .down, at: ProcessInfo.processInfo.systemUptime) {
+            return true
+        }
+        let target = output.target
+        DispatchQueue.main.async {
+            guard let current = AppVolumeMixer.shared.monitorOutput, current.target == target else { return }
+            let expected: Double?
+            switch action {
+            case let .step(direction):
+                expected = BrightnessService.shared.monitorVolumeKeySettings.requestedLevel(
+                    from: current.muted == true ? 0 : current.volume,
+                    direction: direction, fine: fine || precise)
+            case .toggleMute:
+                expected = current.muted == true ? current.volume : 0
+            }
+            Self.applyMonitorVolumeKey(action, target: target, fine: fine || precise)
+            if NotchVolumeKeyGate.playsFeedback(
+                setting: VolumeFeedbackSound.enabled,
+                option: flags.contains(.maskAlternate), shift: flags.contains(.maskShift)),
+               AppVolumeMixer.shared.monitorOutput?.target == target {
+                VolumeFeedbackSound.shared.schedule(force: true, volume: expected, muted: expected.map { $0 <= 0 })
+            }
+        }
+        return true
+    }
+
+    /// Applies a press that routeMonitorVolume claimed. Main thread only, where
+    /// the mixer's monitor output and its request path live.
+    private static func applyMonitorVolumeKey(_ action: BrightnessSupport.VolumeKeyAction,
+                                              target: BrightnessSupport.SpeakerTarget, fine: Bool) {
+        let mixer = AppVolumeMixer.shared
+        guard mixer.monitorOutput?.target == target else { return }
+        func feedback(_ result: AppVolumeMixer.OutputKeyResult) {
+            guard result == .applied, mixer.monitorOutput?.target == target else { return }
+            Self.showMonitorFeedback()
+        }
+        switch action {
+        case let .step(direction):
+            let settings = BrightnessService.shared.monitorVolumeKeySettings
+            mixer.requestOutputStep(level: {
+                settings.requestedLevel(from: $0, direction: direction, fine: fine)
+            }, raises: direction > 0, completion: feedback)
+        case .toggleMute:
+            mixer.requestOutputMuteToggle(completion: feedback)
+        }
+    }
+
+    /// Shows the monitor's level after a key moved it. The island takes the
+    /// notice when it can; the brightness overlay is the fallback.
+    private static func showMonitorFeedback() {
+        if NotchService.shared.showCurrentVolume() { return }
+        guard let output = AppVolumeMixer.shared.monitorOutput else { return }
+        BrightnessOSD.show(displayID: output.target.displayID, level: output.volume,
+                           kind: output.muted == true ? .mutedVolume : .volume)
+    }
+
     private func routeNotchVolume(_ nsEvent: NSEvent, event: CGEvent) -> Bool {
         let code = Int32((nsEvent.data1 >> 16) & 0xffff)
         let state = (nsEvent.data1 >> 8) & 0xff
@@ -185,7 +279,8 @@ final class PreciseVolumeRollerService: ObservableObject {
             keyCode: code, state: state, isRepeat: nsEvent.data1 & 1 != 0,
             enabled: NotchSupport.routes(.volume) && NotchService.shared.acceptsUserInteraction,
             acceptsNewPress: NotchService.shared.acceptsUserInteraction,
-            hasVolume: mixer.systemOutputVolume != nil, hasMute: mixer.systemOutputMuted != nil,
+            hasVolume: mixer.systemOutputVolume != nil && !mixer.outputIsMonitorSpeakers,
+            hasMute: mixer.systemOutputMuted != nil && !mixer.outputIsMonitorSpeakers,
             option: event.flags.contains(.maskAlternate), shift: event.flags.contains(.maskShift),
             commandOrControl: event.flags.contains(.maskCommand) || event.flags.contains(.maskControl))
         if action == .passThrough { return false }
@@ -202,9 +297,12 @@ final class PreciseVolumeRollerService: ObservableObject {
         // CoreAudio can wait for a reconnecting device. Never hold the event
         // tap's reply while reading or writing the audio driver.
         DispatchQueue.main.async {
-            guard outputUID == mixer.currentOutputDeviceUID else { return }
-            let completion: (Bool) -> Void = { applied in
-                if !applied, outputUID == mixer.currentOutputDeviceUID, let fallback {
+            guard outputUID == mixer.currentOutputDeviceUID, !mixer.outputIsMonitorSpeakers else { return }
+            let completion: (AppVolumeMixer.OutputKeyResult) -> Void = { result in
+                if result == .fallback, outputUID == mixer.currentOutputDeviceUID, let fallback {
+                    if precise, key.rollerDirection != nil {
+                        fallback.flags.formUnion([.maskAlternate, .maskShift])
+                    }
                     fallback.setIntegerValueField(.eventSourceUserData, value: PreciseVolumeKeyEvents.postedMarker)
                     fallback.post(tap: .cgSessionEventTap)
                     Self.postForwardedRelease(code)
@@ -223,19 +321,19 @@ final class PreciseVolumeRollerService: ObservableObject {
             // shows the result once it has been applied. A native fallback
             // publishes its state through the listeners.
             if key == .mute {
-                mixer.requestOutputMuteToggle { applied in
-                    completion(applied)
-                    if applied { NotchService.shared.showCurrentVolume() }
+                mixer.requestOutputMuteToggle { result in
+                    completion(result)
+                    if result == .applied { NotchService.shared.showCurrentVolume() }
                 }
             } else if mixer.systemOutputVolume != nil {
                 let direction = key == .volumeUp ? 1 : -1
                 mixer.requestOutputStep(level: {
                     NotchSupport.volumeLevel(current: $0, direction: direction, fine: fine)
-                }, completion: { applied in
-                    completion(applied)
-                    if applied { NotchService.shared.showCurrentVolume() }
+                }, completion: { result in
+                    completion(result)
+                    if result == .applied { NotchService.shared.showCurrentVolume() }
                 })
-            } else { completion(false) }
+            } else { completion(.fallback) }
         }
         return true
     }

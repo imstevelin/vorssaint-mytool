@@ -127,13 +127,14 @@ struct NotchView: View {
                 }
                 .padding(.horizontal, 18)
                 .padding(.top, service.geometry.safeContentTop)
-        } else if let notice = service.notice ?? (service.peeking ? nil : service.departingNotice) {
+        } else if let notice = service.stripNotice {
             if service.noticeExpanded, let content = notice.notification {
                 NotchNotificationPreviewView(notice: notice, content: content, service: service)
                     .padding(.horizontal, NotchLayout.horizontalInset)
                     .padding(.top, service.geometry.safeContentTop)
                     .padding(.bottom, NotchLayout.bottomInset)
                     .frame(width: service.surfaceSize.width, height: service.surfaceSize.height, alignment: .top)
+                    .id(notice.clickTarget)
             } else {
                 Button {
                     service.activateNotice(notice)
@@ -162,6 +163,7 @@ struct NotchView: View {
                 .accessibilityAddTraits(.isButton)
                 .accessibilityAction { service.activateNotice(notice) }
                 .accessibilityHint(text.open)
+                .id(notice.clickTarget)
                 .transition(.opacity)
             }
         } else if service.peeking {
@@ -398,10 +400,13 @@ struct NotchView: View {
                 // fit their side, never pushing them under the camera; the menu
                 // offers the same actions either way.
                 ViewThatFits(in: .horizontal) {
-                    HStack(spacing: 6) { items.trailing; updateControl(band); pinMark }
-                    HStack(spacing: 6) { items.trailing; NotchUpdateControl(action: service.showUpdate, compact: true); pinMark }
-                    HStack(spacing: 6) { items.trailing; pinMark }
-                    HStack(spacing: 6) { items.trailing }
+                    HStack(spacing: 6) { items.trailing; trailingSections(band); updateControl(band); pinMark }
+                    HStack(spacing: 6) {
+                        items.trailing; trailingSections(band)
+                        NotchUpdateControl(action: service.showUpdate, compact: true); pinMark
+                    }
+                    HStack(spacing: 6) { items.trailing; trailingSections(band); pinMark }
+                    HStack(spacing: 6) { items.trailing; trailingSections(band) }
                 }
             }
         }
@@ -416,6 +421,12 @@ struct NotchView: View {
         // Drawn here rather than in the page, the row's controls read the
         // island's language for their dates and numbers, as the page does.
         .environment(\.locale, l10n.language.formattingLocale())
+    }
+
+    /// A page that lays out its leading side itself ends its row with the
+    /// way to the sections, after its own controls, where they fit together.
+    @ViewBuilder private func trailingSections(_ band: NotchBand) -> some View {
+        if band.trailingSectionsButton { NotchSectionsButton(action: service.toggleSections) }
     }
 
     private func updateControl(_ band: NotchBand) -> some View {
@@ -445,7 +456,7 @@ struct NotchView: View {
         } else if band.sectionsButton {
             // Without the floating button, the sections stay one click away;
             // the row keeps it room before the page's own controls.
-            NotchIconButton(symbol: "square.grid.2x2", title: text.sectionsTitle, action: service.toggleSections)
+            NotchSectionsButton(action: service.toggleSections)
         }
     }
 
@@ -509,7 +520,8 @@ struct NotchView: View {
             size.height = max(size.height, NotchLayout.mixerMinimumHeight)
         case .music:
             size.height = max(size.height, NotchLayout.musicPlayerHeight(band: service.expandedGeometry.musicBandHeight,
-                                                                         playing: music.playback != nil))
+                                                                         playing: music.playback != nil,
+                                                                         showVolume: service.musicShowsVolume))
         case .files:
             // One shelf tile and its vertical insets; the actions are in the top row.
             size.height = max(size.height, 88 + 8)

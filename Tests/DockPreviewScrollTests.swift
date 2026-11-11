@@ -121,12 +121,14 @@ enum DockPreviewScrollTests {
             buttonActions.removeAll()
             window.close()
         }
-        func settle() {
-            let deadline = Date().addingTimeInterval(0.25)
+        func settle(timeout: TimeInterval = 0.25, until condition: () -> Bool = { false }) {
+            let deadline = Date().addingTimeInterval(timeout)
             repeat {
                 hosting.layoutSubtreeIfNeeded()
                 RunLoop.current.run(until: min(deadline, Date().addingTimeInterval(0.01)))
+                if condition() { return }
             } while Date() < deadline
+            hosting.layoutSubtreeIfNeeded()
         }
         func findScroll(_ view: NSView) -> NSScrollView? {
             if let scroll = view as? NSScrollView { return scroll }
