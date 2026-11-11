@@ -30,7 +30,8 @@ struct DisplayHardwareControls: View {
         if !display.isBuiltIn, display.isActive {
             VStack(alignment: .leading, spacing: compact ? 5 : 10) {
                 if !compact { hiDPIControls }
-                if let volume = state?.values[.volume] {
+                if hardware.usesHardwareAudioControls(for: display),
+                   let volume = state?.values[.volume] {
                     controlSlider(.volume, label: DisplayControlText.volume, value: volume)
                     VolumeFeedbackSoundToggle(compact: compact)
                     HStack {
@@ -42,7 +43,8 @@ struct DisplayHardwareControls: View {
                         Spacer()
                         if state?.pending.contains(.volume) == true { ProgressView().controlSize(.mini) }
                     }
-                } else if state?.values[.mute] != nil {
+                } else if (hardware.usesHardwareAudioControls(for: display)),
+                          state?.values[.mute] != nil {
                     Toggle(DisplayControlText.mute, isOn: Binding(
                         get: { state?.values[.mute]?.current == 1 },
                         set: { _ in toggleMute() }))

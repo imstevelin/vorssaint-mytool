@@ -80,8 +80,12 @@ private struct BluetoothAudioRecoverySettings: View {
         }
     }
 
+    private var recoveryStrings: BluetoothAudioRecoveryStrings {
+        BluetoothAudioRecoveryStrings.localized(l10n.language)
+    }
+
     var body: some View {
-        SettingsCard(title: chinese ? "藍牙喇叭連線修復" : "Bluetooth speaker recovery") {
+        SettingsCard(title: recoveryStrings.title) {
             Toggle(chinese ? "連接指定裝置時自動重啟藍牙服務" : "Restart Bluetooth for selected devices",
                    isOn: $enabled)
                 .onChange(of: enabled) { _, _ in
