@@ -1,7 +1,7 @@
 {
   "upstream_repository": "vorssaint/vorssaint-utils",
-  "upstream_commit": "d9c7f4a77e809405facd4d71289ec58a29e46380",
-  "integrated_on": "2026-11-12",
+  "upstream_commit": "faada18df1b90572cddc6182ce7fc04e0eb1435c",
+  "integrated_on": "2026-11-21",
   "official_release": "v3.4.4",
-  "record": "docs/upstream-sync/2026-11-12.md"
+  "record": "docs/upstream-sync/2026-11-21.md"
 }

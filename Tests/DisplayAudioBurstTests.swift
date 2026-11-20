@@ -36,11 +36,13 @@ enum DisplayAudioBurstTests {
         var hardwareSequence: UInt64 = 0
         var hardwareAudioDisplayID: UInt32? = 2
         var writes: [UInt16] = []
+        var chips: [UInt32] = []
         var fail = false
         var deviceVolume: UInt16 = 20
         var deviceMute: UInt16 = 2
         static func displayFingerprint(_ id: UInt32) -> String { "monitor" }
-        func ddcSend(to id: UInt32, service: CFTypeRef, packet: [UInt8]) -> Bool {
+        func ddcSend(to id: UInt32, service: CFTypeRef, chip: UInt32, packet: [UInt8]) -> Bool {
+            chips.append(chip)
             let value = UInt16(packet[3]) << 8 | UInt16(packet[4])
             writes.append(value)
             if !fail {
@@ -48,15 +50,16 @@ enum DisplayAudioBurstTests {
             }
             return !fail
         }
-        func ddcReadControl(_ code: UInt8, for id: UInt32, service: CFTypeRef) -> DisplayHardwareValue? {
-            .init(current: code == 0x62 ? deviceVolume : deviceMute, maximum: code == 0x62 ? 100 : 2)
+        func ddcReadControl(_ code: UInt8, for id: UInt32, service: CFTypeRef, chip: UInt32) -> DisplayHardwareValue? {
+            chips.append(chip)
+            return .init(current: code == 0x62 ? deviceVolume : deviceMute, maximum: code == 0x62 ? 100 : 2)
         }
     }
-    static func make() -> Service {
+    static func make(chip: UInt32 = BrightnessSupport.chipAddress) -> Service {
         DispatchQueue.main.jobs = []
         NotchService.shared.levels = []
         let service = Service()
-        service.hardwareRoutes[2] = .init(service: "monitor" as CFString, identity: "monitor", fingerprint: "monitor")
+        service.hardwareRoutes[2] = .init(service: "monitor" as CFString, identity: "monitor", fingerprint: "monitor", chipAddress: chip)
         service.hardwareControls[2] = .init(identity: "monitor", values: [
             .volume: .init(current: 20, maximum: 100), .mute: .init(current: 2, maximum: 2)])
         return service
@@ -71,6 +74,12 @@ enum DisplayAudioBurstTests {
         suite.expect(service.writes == [50] && service.deviceVolume == 50,
                      "queued obsolete writes are skipped and the latest target reaches the monitor")
         suite.expect(NotchService.shared.levels.count == 5, "successful readback does not replay delayed notices")
+        suite.expect(service.chips == [0x37, 0x37], "ordinary fork hardware writes and readback keep the standard DDC address")
+        let converter = make(chip: BrightnessSupport.hdmiConverterChipAddress)
+        converter.stepHardwareAudio(1, fine: false) { _ in }
+        DispatchQueue.main.drain(); converter.workQueue.drain(); DispatchQueue.main.drain()
+        suite.expect(converter.chips == [0xB7, 0xB7] && converter.deviceVolume == 26,
+                     "fork manual hardware volume and readback both reach the built-in HDMI converter")
 
         let stale = make()
         stale.stepHardwareAudio(1, fine: false) { _ in }; DispatchQueue.main.drain()
