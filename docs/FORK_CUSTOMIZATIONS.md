@@ -91,3 +91,9 @@ HiDPI 預設使用原生縮放，日常只需開關；方式選擇、面板校�
 官方螢幕音量路由接回 SystemOutputControl；當前輸出的既有手動綁定優先，清除綁定才恢復自動配對。設定與選單同一台螢幕只呈現一組音量控制，當前官方螢幕列也使用共用回饋入口。保留 CoreAudio 優先、DDC 失敗不重送、每次接受操作獨立回饋及全螢幕中央卡片；不替新選項自動開啟。
 
 XDG 設定使用 `vorssaint-imstevelin`／`vorssaint-imstevelin-dev`，不讀官方的 `vorssaint` 目錄。CoreAudioTapCompat／RecorderGIFCodec 與 fork 音訊例外及顯示 helper 同時存在，保留隨附 codec 授權。詳細決策與驗收界線見 [本輪同步](upstream-sync/2026-11-12.md)。
+
+## HDMI 位址與 XDG 保存
+
+DDC 位址由實際連接的服務決定，亮度、官方喇叭與 fork 手動音量／對比度的寫入及讀回都要保留該位址。fork 原始讀取迴圈已改用共用 ddcProbe；標準 0x37 與內建 HDMI converter 0xB7 均有生產 setter 回歸，不代表已完成實體 HDMI 驗收。
+
+XDG 設定只在使用者明確確認保存時寫入 fork 專用路徑，唯讀或非一般檔案不得被替換。啟動載入保留未列項目及本機媒體資料，不因 JSON 鍵順序不同而重套語意相同的設定。官方按鍵放開音效不取代 fork 的每次接受操作獨立回饋。詳見 [2026-11-21 同步](upstream-sync/2026-11-21.md)。
