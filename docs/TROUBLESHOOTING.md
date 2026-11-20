@@ -79,12 +79,14 @@ starting a multiplexer or a slow prompt:
 
 At each normal launch, Vorssaint reads `~/.config/vorssaint-imstevelin/settings.plist`.
 An absolute `XDG_CONFIG_HOME` selects the parent of `vorssaint/`. The Developer
-build uses `vorssaint-dev/`. Git, Stow or Home Manager can own the file,
+build uses `vorssaint-imstevelin-dev/`. Git, Stow or Home Manager can own the file,
 including a symlink to a read-only target. Edits made during a session take
 effect the next time you launch the app.
 
-Create a starting file by exporting your current settings. Backups include
-your text snippets, so review the contents before sharing one.
+Create a starting file with **Save to settings file…** under Settings >
+Advanced > Backup, which shows the path and asks before writing, or export
+from the command line. Backups include your text snippets, so review the
+contents before sharing one.
 
 ```sh
 "/Applications/實用小工具.app/Contents/MacOS/VorssaintImstevelin" --export-settings ~/.config/vorssaint-imstevelin/settings.plist
@@ -93,9 +95,14 @@ your text snippets, so review the contents before sharing one.
 Keep the backup version and the `settings` dictionary. You can trim the
 dictionary to just the settings you want to manage. Omitted preferences and
 snippets stay local, and the app only reads this file during normal use.
-An explicit export replaces its destination with a complete snapshot.
+An explicit export or save replaces its destination with a complete snapshot,
+and the app never writes the file on its own. The file applies at every launch,
+so save again after changing settings in the app, or the next launch brings
+the saved values back. A read-only target, such as a
+Nix store link, is left unchanged and the save reports that it failed.
 Export to a separate path to review changes to a hand-maintained file.
-The Import button and `--import-settings FILE` still perform a full restore.
+The Import button and `--import-settings FILE` restore the backup. On the next
+launch, values declared in the XDG file take precedence over the imported ones.
 Quit the app before importing from a script.
 
 Apps opened from Finder inherit the login environment. To choose a custom
