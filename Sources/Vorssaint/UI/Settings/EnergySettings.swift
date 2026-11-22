@@ -413,20 +413,17 @@ struct EnergySettings: View {
     }
 
     private var workstationCard: some View {
-        let title = DisplayControlText.text("Windows 工作台切換", "Windows workstation switching")
-        let handoff = DisplayControlText.text("鍵盤與觸控板跟隨輸入來源", "Keyboard and trackpad follow the display input")
-        let macInput = DisplayControlText.text("Mac 接孔", "Mac input")
-        let windowsInput = DisplayControlText.text("Windows 接孔", "Windows input")
-        return SettingsCard(title: title) {
-            Toggle(title, isOn: $workstationEnabled)
+        let strings = FeatureStrings.workstationSwitch(l10n.language)
+        return SettingsCard(title: strings.title) {
+            Toggle(strings.title, isOn: $workstationEnabled)
                 .onChange(of: workstationEnabled) { _, _ in workstation.syncWithPreferences() }
             if workstationEnabled {
                 ForEach([true, false], id: \.self) { isMac in
-                    Picker(isMac ? macInput : windowsInput, selection: isMac ? $workstationMacInput : $workstationWindowsInput) {
+                    Picker(isMac ? strings.macInput : strings.windowsInput, selection: isMac ? $workstationMacInput : $workstationWindowsInput) {
                         ForEach(WorkstationPort.allCases) { port in Text(port.label).tag(port.rawValue) }
                     }
                 }
-                Toggle(handoff, isOn: $workstationBluetooth)
+                Toggle(strings.bluetoothFollow, isOn: $workstationBluetooth)
                     .onChange(of: workstationBluetooth) { _, _ in workstation.syncWithPreferences() }
                 if workstationBluetooth {
                     Text(DisplayControlText.text("兩端都要配對同一組 Magic Keyboard 和 Magic Trackpad，並開啟自動交接。", "Pair the same Magic Keyboard and Magic Trackpad on both computers and enable handoff on both."))

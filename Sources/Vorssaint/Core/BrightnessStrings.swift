@@ -3,6 +3,29 @@
 
 import Foundation
 
+struct WorkstationSwitchStrings {
+    let title: String
+    let bluetoothFollow: String
+    let macInput: String
+    let windowsInput: String
+}
+
+extension FeatureStrings {
+    static func workstationSwitch(_ language: AppLanguage) -> WorkstationSwitchStrings {
+        switch language {
+        case .zhTW, .zhHK:
+            return .init(title: "Windows 工作台切換", bluetoothFollow: "鍵盤與觸控板跟隨輸入來源",
+                         macInput: "Mac 接孔", windowsInput: "Windows 接孔")
+        case .zhHans:
+            return .init(title: "Windows 工作台切换", bluetoothFollow: "键盘与触控板跟随输入源",
+                         macInput: "Mac 接口", windowsInput: "Windows 接口")
+        default:
+            return .init(title: "Windows workstation switching", bluetoothFollow: "Keyboard and trackpad follow the display input",
+                         macInput: "Mac input", windowsInput: "Windows input")
+        }
+    }
+}
+
 /// Strings for the display brightness feature. Same contract as the other
 /// FeatureStrings structs: memberwise init in declaration order, one static
 /// per language, all in this file.
