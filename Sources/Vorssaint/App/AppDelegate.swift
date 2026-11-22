@@ -325,6 +325,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
 
     func applicationWillTerminate(_ notification: Notification) {
         isTerminating = true
+        if UserDefaults.standard.bool(forKey: DefaultsKey.workstationEnabled) {
+            WorkstationSwitchService.shared.stop()
+        }
         if AppFeature.windowLayout.isAvailable { DisplayWindowMemoryService.shared.flush() }
         AgentUsageService.shared.flushProgressBeforeTermination()
         VirtualHiDPIService.shared.stopAll()

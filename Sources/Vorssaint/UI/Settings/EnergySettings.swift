@@ -16,6 +16,11 @@ struct EnergySettings: View {
     @ObservedObject private var extraBrightness = ExtraBrightnessService.shared
     @ObservedObject private var brightness = BrightnessService.shared
     @AppStorage(DefaultsKey.brightnessControlEnabled) private var brightnessEnabled = false
+    @AppStorage(DefaultsKey.workstationEnabled) private var workstationEnabled = false
+    @AppStorage(DefaultsKey.workstationBluetoothEnabled) private var workstationBluetooth = false
+    @AppStorage(DefaultsKey.workstationMacInput) private var workstationMacInput = WorkstationPort.hdmi1.rawValue
+    @AppStorage(DefaultsKey.workstationWindowsInput) private var workstationWindowsInput = WorkstationPort.hdmi2.rawValue
+    @ObservedObject private var workstation = WorkstationSwitchService.shared
     @AppStorage(DefaultsKey.brightnessKeysEnabled) private var brightnessKeysEnabled = false
     @AppStorage(DefaultsKey.brightnessOSDEnabled) private var brightnessOSDEnabled = false
     @AppStorage(DefaultsKey.displayVolumeEnabled) private var displayVolume = false
@@ -58,6 +63,7 @@ struct EnergySettings: View {
                 if (focus == nil || focus == .brightness), AppFeature.brightness.isAvailable {
                     displaysCard
                         .settingsSectionAnchor(.brightness, cornerRadius: 16)
+                    if brightnessEnabled { workstationCard }
                 }
                 if (focus == nil || focus == .extraBrightness), AppFeature.extraBrightness.isAvailable {
                     extraBrightnessCard
@@ -305,6 +311,7 @@ struct EnergySettings: View {
                     .labelsHidden()
                     .onChange(of: brightnessEnabled) { _, _ in
                         BrightnessService.shared.syncWithPreferences()
+                        workstation.syncWithPreferences()
                     }
             }
             if brightnessEnabled {
@@ -403,6 +410,47 @@ struct EnergySettings: View {
                 }
             }
         }
+    }
+
+    private var workstationCard: some View {
+        let title = DisplayControlText.text("Windows 工作台切換", "Windows workstation switching")
+        let handoff = DisplayControlText.text("鍵盤與觸控板跟隨輸入來源", "Keyboard and trackpad follow the display input")
+        let macInput = DisplayControlText.text("Mac 接孔", "Mac input")
+        let windowsInput = DisplayControlText.text("Windows 接孔", "Windows input")
+        return SettingsCard(title: title) {
+            Toggle(title, isOn: $workstationEnabled)
+                .onChange(of: workstationEnabled) { _, _ in workstation.syncWithPreferences() }
+            if workstationEnabled {
+                ForEach([true, false], id: \.self) { isMac in
+                    Picker(isMac ? macInput : windowsInput, selection: isMac ? $workstationMacInput : $workstationWindowsInput) {
+                        ForEach(WorkstationPort.allCases) { port in Text(port.label).tag(port.rawValue) }
+                    }
+                }
+                Toggle(handoff, isOn: $workstationBluetooth)
+                    .onChange(of: workstationBluetooth) { _, _ in workstation.syncWithPreferences() }
+                if workstationBluetooth {
+                    Text(DisplayControlText.text("兩端都要配對同一組 Magic Keyboard 和 Magic Trackpad，並開啟自動交接。", "Pair the same Magic Keyboard and Magic Trackpad on both computers and enable handoff on both."))
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                HStack {
+                    Button(DisplayControlText.text("讀取目前來源", "Read current input")) { workstation.diagnose() }
+                    Button(DisplayControlText.text("切到 Windows", "Switch to Windows")) { workstation.switchToWindows() }
+                        .disabled(workstationMacInput == workstationWindowsInput)
+                }
+                .disabled(workstation.busy)
+                if workstationMacInput == workstationWindowsInput {
+                    Text(DisplayControlText.text("兩台電腦必須使用不同接孔。", "Choose different inputs for the two computers."))
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                Text(workstation.shortcutAvailable ? "⌃⌥⇧ F9" : DisplayControlText.text("快捷鍵已被占用，請使用按鈕。", "The shortcut is in use. Use the button."))
+                    .font(.caption).foregroundStyle(.secondary)
+                if !workstation.status.isEmpty {
+                    Text(workstation.status).font(.caption).foregroundStyle(.secondary)
+                }
+            }
+        }
+        .onChange(of: workstationMacInput) { _, _ in workstation.syncWithPreferences() }
+        .onChange(of: workstationWindowsInput) { _, _ in workstation.syncWithPreferences() }
     }
 
     /// A finer step answers the keys in place of the system, which takes the
