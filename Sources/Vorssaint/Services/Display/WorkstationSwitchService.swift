@@ -35,7 +35,7 @@ final class WorkstationSwitchService: ObservableObject {
     private var generation = 0
     private var fadeGeneration = 0
     private let fade = WorkstationFade()
-    private let capsRelay = WorkstationCapsRelay()
+    private let keyRelay = WorkstationKeyRelay()
     @Published private(set) var busy = false
     @Published private(set) var status = ""
     @Published private(set) var shortcutAvailable = true
@@ -268,9 +268,9 @@ final class WorkstationSwitchService: ObservableObject {
     private func handleDeskflowLine(_ line: String) {
         if line.contains("accepted client connection") {
             clientConnected = true
-            if !capsRelay.start() {
-                status = DisplayControlText.text("Caps Lock 轉送無法啟動。請在 macOS 隱私權設定允許實用小工具監控輸入。",
-                                                 "Caps Lock forwarding could not start. Allow Input Monitoring for this app.")
+            if !keyRelay.start() {
+                status = DisplayControlText.text("工作台按鍵轉送無法啟動。請在 macOS 隱私權設定允許實用小工具監控輸入。",
+                                                 "Workstation key forwarding could not start. Allow Input Monitoring for this app.")
             }
         } else if line.contains("disconnecting client") || line.contains("forced disconnection of client")
                     || line.contains(#"jump from "workstation-windows" to "workstation-mac""#) {
@@ -287,15 +287,23 @@ final class WorkstationSwitchService: ObservableObject {
     }
 
     private func resetDeskflowEffects() {
-        capsRelay.stop()
+        keyRelay.stop()
         fadeGeneration &+= 1
         fade.clear()
     }
 
     private func transitionDeskflow(toWindows: Bool) {
-        capsRelay.forwarding = toWindows
+        keyRelay.forwarding = toWindows
         fadeGeneration &+= 1
         let epoch = fadeGeneration
+        // The Windows tray is absent before sign-in. The Mac DDC route
+        // can finish the same switch if Windows has not done so already.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in
+            guard let self, self.fadeGeneration == epoch, let monitor = self.monitor, let settings = self.settings else { return }
+            let source = toWindows ? settings.mac.code : settings.windows.code
+            let target = toWindows ? settings.windows.code : settings.mac.code
+            BrightnessService.shared.workstationInput(for: monitor, from: source, to: target) { _ in }
+        }
         if toWindows {
             fade.darkening { [weak self] in
                 guard let self, self.fadeGeneration == epoch else { return }
@@ -303,7 +311,15 @@ final class WorkstationSwitchService: ObservableObject {
             }
             DispatchQueue.main.asyncAfter(deadline: .now() + 5.5) { [weak self] in
                 guard let self, self.fadeGeneration == epoch else { return }
-                self.fade.reveal()
+                guard let monitor = self.monitor, let settings = self.settings else {
+                    self.fade.clear()
+                    return
+                }
+                BrightnessService.shared.workstationInput(for: monitor) { [weak self] result in
+                    guard let self, self.fadeGeneration == epoch else { return }
+                    if case let .current(input) = result, input == settings.windows.code { return }
+                    self.fade.reveal()
+                }
             }
         } else {
             fade.cover()
@@ -486,7 +502,7 @@ private final class WorkstationFade {
     }
 }
 
-private final class WorkstationCapsRelay {
+private final class WorkstationKeyRelay {
     var forwarding = false
     private var tap: CFMachPort?
     private var runLoopSource: CFRunLoopSource?
@@ -495,13 +511,13 @@ private final class WorkstationCapsRelay {
     func start() -> Bool {
         if tap != nil { return true }
         capsOn = CGEventSource.flagsState(.combinedSessionState).contains(.maskAlphaShift)
-        let mask = CGEventMask(1) << CGEventType.flagsChanged.rawValue
+        let systemDefined = CleaningSystemKeyEvent.systemDefinedEventTypeRawValue
+        let mask = (CGEventMask(1) << CGEventType.flagsChanged.rawValue) | (CGEventMask(1) << systemDefined)
         guard let port = CGEvent.tapCreate(tap: .cghidEventTap, place: .headInsertEventTap, options: .defaultTap,
                     eventsOfInterest: mask, callback: { proxy, type, event, context in
             guard let context else { return Unmanaged.passUnretained(event) }
-            let relay = Unmanaged<WorkstationCapsRelay>.fromOpaque(context).takeUnretainedValue()
-            relay.handle(proxy: proxy, type: type, event: event)
-            return Unmanaged.passUnretained(event)
+            let relay = Unmanaged<WorkstationKeyRelay>.fromOpaque(context).takeUnretainedValue()
+            return relay.handle(proxy: proxy, type: type, event: event) ? nil : Unmanaged.passUnretained(event)
         }, userInfo: Unmanaged.passUnretained(self).toOpaque()),
         let source = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, port, 0) else { return false }
         tap = port
@@ -519,20 +535,33 @@ private final class WorkstationCapsRelay {
         runLoopSource = nil
     }
 
-    private func handle(proxy: CGEventTapProxy, type: CGEventType, event: CGEvent) {
+    private func handle(proxy: CGEventTapProxy, type: CGEventType, event: CGEvent) -> Bool {
         if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
             if let tap { CGEvent.tapEnable(tap: tap, enable: true) }
-            return
+            return false
+        }
+        if type.rawValue == CleaningSystemKeyEvent.systemDefinedEventTypeRawValue {
+            guard forwarding, let media = NSEvent(cgEvent: event),
+                  let key = BrightnessSupport.brightnessKeyEvent(subtype: Int(media.subtype.rawValue), data1: media.data1) else {
+                return false
+            }
+            // Windows Deskflow handles native volume/playback keys. Its
+            // client has no display brightness action, so use regular keys.
+            if key.isKeyDown { post(key.delta < 0 ? kVK_F18 : kVK_F19, event: event, proxy: proxy) }
+            return true
         }
         let previous = capsOn
         capsOn = event.flags.contains(.maskAlphaShift)
         guard forwarding, capsOn != previous,
-              event.getIntegerValueField(.keyboardEventKeycode) == Int64(kVK_CapsLock) else { return }
+              event.getIntegerValueField(.keyboardEventKeycode) == Int64(kVK_CapsLock) else { return false }
+        // Deskflow discards Caps Lock on the receiving end.
+        post(kVK_F20, event: event, proxy: proxy)
+        return false
+    }
 
-        // Deskflow discards Caps Lock on the receiving end. Forward a regular
-        // key pair through the existing authenticated Deskflow connection.
+    private func post(_ code: Int, event: CGEvent, proxy: CGEventTapProxy) {
         for isDown in [true, false] {
-            guard let forwarded = CGEvent(keyboardEventSource: nil, virtualKey: CGKeyCode(kVK_F20), keyDown: isDown) else { continue }
+            guard let forwarded = CGEvent(keyboardEventSource: nil, virtualKey: CGKeyCode(code), keyDown: isDown) else { continue }
             forwarded.flags = event.flags.subtracting(.maskAlphaShift)
             forwarded.tapPostEvent(proxy)
         }
