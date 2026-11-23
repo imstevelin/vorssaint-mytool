@@ -27,7 +27,9 @@ if [[ ! -f "$image" ]] || ! verify "$image"; then
     mv "$temporary/$asset" "$image"
 fi
 
-hdiutil attach -nobrowse -readonly -mountpoint "$mount" "$image" >/dev/null
+# The upstream image embeds its open-source license. The pinned, verified
+# artifact is unpacked noninteractively during CI and local builds.
+printf 'y\n' | hdiutil attach -nobrowse -readonly -mountpoint "$mount" "$image" >/dev/null
 source="$mount/Deskflow.app"
 test -x "$source/Contents/MacOS/deskflow-core"
 codesign --verify --deep --strict "$source"
