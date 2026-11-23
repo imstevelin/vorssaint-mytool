@@ -324,7 +324,7 @@ final class WorkstationSwitchService: ObservableObject {
                 }
             }
         } else {
-            fade.cover()
+            fade.cover(hidingCursor: true)
             let deadline = ProcessInfo.processInfo.systemUptime + 14
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.55) { [weak self] in
                 self?.revealWhenMacIsVisible(epoch: epoch, deadline: deadline, inputSince: nil, litSince: nil)
@@ -339,7 +339,7 @@ final class WorkstationSwitchService: ObservableObject {
             fade.reveal()
             return
         }
-        let covered = fade.cover()
+        let covered = fade.cover(hidingCursor: true)
         let retry = { [weak self] (input: TimeInterval?, lit: TimeInterval?) in
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.22) {
                 self?.revealWhenMacIsVisible(epoch: epoch, deadline: deadline, inputSince: input, litSince: lit)
@@ -353,10 +353,10 @@ final class WorkstationSwitchService: ObservableObject {
             let input = max(inputSince ?? now, displayChange)
             switch result {
             case let .current(code) where code == settings.mac.code:
-                // VCP reports the restored backlight before the panel visibly
-                // presents the Mac signal. Keep the black frame through that gap.
+                // Leave a short buffer after the monitor reports restored
+                // backlight so the first frames of the fade are visible.
                 let lit = max(litSince ?? now, displayChange)
-                if now - input >= 3.4, now - lit >= 2.5 {
+                if now - input >= 1.0, now - lit >= 0.5 {
                     self.fade.reveal()
                 } else {
                     retry(input, lit)
@@ -439,6 +439,7 @@ private final class WorkstationFade {
     private var mask: NSView?
     private var revision = 0
     private var keepCovered = false
+    private var cursorHidden = false
     private var screenObserver: NSObjectProtocol?
     private(set) var lastDisplayChange: TimeInterval = 0
 
@@ -454,10 +455,11 @@ private final class WorkstationFade {
 
     deinit {
         if let screenObserver { NotificationCenter.default.removeObserver(screenObserver) }
+        restoreCursor()
     }
 
     @discardableResult
-    func cover() -> Bool {
+    func cover(hidingCursor: Bool = false) -> Bool {
         if !keepCovered { revision &+= 1 }
         keepCovered = true
         guard let mask = show(opacity: 1), let panel else {
@@ -468,10 +470,15 @@ private final class WorkstationFade {
         }
         mask.alphaValue = 1
         if !panel.isVisible { panel.orderFrontRegardless() }
+        // The window server draws the hardware cursor above the panel.
+        if hidingCursor, !cursorHidden {
+            cursorHidden = CGDisplayHideCursor(CGMainDisplayID()) == .success
+        }
         return true
     }
 
     func darkening(completion: @escaping () -> Void) {
+        restoreCursor()
         revision &+= 1
         keepCovered = false
         let started = revision
@@ -491,8 +498,8 @@ private final class WorkstationFade {
         revision &+= 1
         keepCovered = false
         let started = revision
-        guard let mask else { return }
-        animate(mask, to: 0, duration: 1.1) { [weak self] in
+        guard let mask else { clear(); return }
+        animate(mask, to: 0, duration: 0.85) { [weak self] in
             guard let self, self.revision == started else { return }
             self.clear()
         }
@@ -504,6 +511,13 @@ private final class WorkstationFade {
         panel?.orderOut(nil)
         panel = nil
         mask = nil
+        restoreCursor()
+    }
+
+    private func restoreCursor() {
+        guard cursorHidden else { return }
+        cursorHidden = false
+        CGDisplayShowCursor(CGMainDisplayID())
     }
 
     static func playCue() {
