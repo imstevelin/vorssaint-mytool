@@ -43,6 +43,9 @@ jobs:
       - name: Maintenance tooling tests
         run: python3 Tests/UpstreamAssessmentTests.py
 
+      - name: Workstation pairing tests
+        run: python3 Tests/WorkstationPairingIntegrationTests.py
+
   build:
     name: Build & selftest
     runs-on: macos-26

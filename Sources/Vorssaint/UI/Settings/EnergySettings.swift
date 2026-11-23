@@ -463,22 +463,30 @@ struct EnergySettings: View {
         let macLabel = DisplayControlText.text("Mac 指紋", "Mac fingerprint")
         let windowsLabel = DisplayControlText.text("Windows 指紋", "Windows fingerprint")
         return VStack(alignment: .leading, spacing: 8) {
-            Text(DisplayControlText.text("在 Windows 輸入這裡的 Mac 位址與指紋，再把 Windows 指紋貼到下方。",
-                                         "Enter this Mac address and fingerprint on Windows, then paste the Windows fingerprint here."))
+            Text(DisplayControlText.text("讓兩台電腦連上同一個區域網路，然後在 Windows 貼上這裡產生的配對碼。配對碼三分鐘後失效。",
+                                         "Connect both computers to the same local network, then paste the pairing code on Windows. The code expires after three minutes."))
                 .font(.caption).foregroundStyle(.secondary)
-            workstationPairingValue(addressLabel, workstation.lanAddress)
-            workstationPairingValue(macLabel, workstation.localFingerprint)
-            TextField(windowsLabel, text: $workstationWindowsFingerprint)
-                .font(.system(.body, design: .monospaced))
             HStack {
-                Button(DisplayControlText.text("儲存配對並啟動", "Save pairing and start")) {
-                    workstation.savePairing(workstationWindowsFingerprint) { workstationDeskflow = true }
+                Button(DisplayControlText.text("產生配對碼", "Generate pairing code")) {
+                    workstation.generatePairingCode()
                 }
-                .disabled(workstationWindowsFingerprint.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 Button(DisplayControlText.text("移除 Windows 配對", "Remove Windows pairing")) {
                     workstation.forgetPairing()
                 }
                 .disabled(workstation.pairedFingerprint.isEmpty)
+            }
+            if !workstation.pairingCode.isEmpty {
+                workstationPairingValue(DisplayControlText.text("配對碼", "Pairing code"), workstation.pairingCode)
+            }
+            DisclosureGroup(DisplayControlText.text("手動配對與診斷", "Manual pairing and diagnostics")) {
+                workstationPairingValue(addressLabel, workstation.lanAddress)
+                workstationPairingValue(macLabel, workstation.localFingerprint)
+                TextField(windowsLabel, text: $workstationWindowsFingerprint)
+                    .font(.system(.body, design: .monospaced))
+                Button(DisplayControlText.text("儲存配對並啟動", "Save pairing and start")) {
+                    workstation.savePairing(workstationWindowsFingerprint) { workstationDeskflow = true }
+                }
+                .disabled(workstationWindowsFingerprint.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
             let connection = workstation.clientConnected
                 ? DisplayControlText.text("Windows 已驗證並連線。", "Windows is authenticated and connected.")
