@@ -182,6 +182,17 @@ final class WorkstationSwitchService: ObservableObject {
         }
     }
 
+    private func migrateDeskflowShortcut() throws {
+        let layout = Self.deskflowDirectory.appendingPathComponent("workstation.conf")
+        let original = try String(contentsOf: layout, encoding: .utf8)
+        // Deskflow's macOS hotkey registration maps Super to Option and Alt to Command.
+        let updated = original.replacingOccurrences(
+            of: "keystroke(Control+Alt+Shift+F9) = switchToNextScreen",
+            with: "keystroke(Control+Super+Shift+F9) = switchToNextScreen"
+        )
+        if updated != original { try updated.write(to: layout, atomically: true, encoding: .utf8) }
+    }
+
     private func startDeskflow() {
         guard deskflow == nil else { return }
         guard AXIsProcessTrusted() else {
@@ -196,6 +207,11 @@ final class WorkstationSwitchService: ObservableObject {
             status = DisplayControlText.text("請先安裝 Deskflow 並建立伺服器設定。", "Install Deskflow and prepare its server profile first.")
             return
         }
+        do { try migrateDeskflowShortcut() }
+        catch {
+            status = DisplayControlText.text("無法讀取或更新 Deskflow 快捷鍵設定。", "Could not read or update the Deskflow shortcut.") + " " + error.localizedDescription
+            return
+        }
         let process = Process()
         let output = Pipe()
         let reader = FileHandleLogReader { [weak self, weak process] line in
@@ -203,6 +219,13 @@ final class WorkstationSwitchService: ObservableObject {
                 DispatchQueue.main.async {
                     guard let self, let process, self.deskflow === process else { return }
                     self.clientConnected = line.contains("accepted client connection")
+                }
+            }
+            if line.contains("failed to register hotkey") {
+                DispatchQueue.main.async {
+                    guard let self, let process, self.deskflow === process else { return }
+                    self.status = DisplayControlText.text("Deskflow 無法註冊快捷鍵。請檢查是否有其他程式使用同一組按鍵。",
+                                                          "Deskflow could not register the shortcut. Check whether another app uses it.")
                 }
             }
         }

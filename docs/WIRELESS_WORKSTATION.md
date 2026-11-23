@@ -7,4 +7,6 @@ Magic Keyboard 與 Magic Trackpad 固定配對到 Mac。Mac 啟動 Deskflow 伺�
 3. 在 Windows 的「Mac 配件控制 → 螢幕」先設定兩台電腦的接孔，再到「區網輸入（Deskflow）」複製 Windows 指紋。將它貼入 Mac 的 Windows 指紋欄，按「儲存配對並啟動」，並依提示允許「實用小工具 (Developer)」使用輔助使用。在 Windows 輸入 Mac 顯示的位址和指紋，按「儲存配對並連線」。兩端都會顯示目前狀態。
 4. 用 `Control+Option+Shift+F9` 往返兩端。若 Mac 的 F9 是媒體鍵，同時按 Fn。Windows 用戶端會依輸入焦點，從 Windows 的影像連線對 PA328QV 發送 DDC/CI 指令。
 
+舊版配對設定會將這組快捷鍵綁到 Command。更新並重新啟動實用小工具後，既有配對會自動改用 Option。
+
 兩端只交換公開憑證指紋，私鑰留在自己的設定資料夾。剪貼簿同步已關閉。請透過實用小工具管理同一個伺服器。共用螢幕的輸入切到 Windows 時，Mac 仍需有可用桌面。若闔蓋造成 Deskflow 找不到作用中顯示器，打開上蓋並重啟伺服器。Mac 的日誌位於 `~/Library/Application Support/Vorssaint Workstation/deskflow-server.log`。
