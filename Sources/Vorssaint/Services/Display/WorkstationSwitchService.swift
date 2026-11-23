@@ -45,6 +45,8 @@ final class WorkstationSwitchService: ObservableObject {
     @Published private(set) var pairedFingerprint = ""
     @Published private(set) var pairingBusy = false
     @Published private(set) var clientConnected = false
+    @Published private(set) var pairingCode = ""
+    private var pairingInvitation: WorkstationPairingCode?
 
     private var settings: (mac: WorkstationPort, windows: WorkstationPort)? {
         let defaults = UserDefaults.standard
@@ -94,6 +96,38 @@ final class WorkstationSwitchService: ObservableObject {
 
     func loadPairing() { updatePairing(nil) }
 
+    func generatePairingCode() {
+        cancelPairingCode()
+        updatePairing(nil) { [weak self] in
+            guard let self else { return }
+            do {
+                guard let invitation = try WorkstationPairingCode(host: self.lanAddress, fingerprint: self.localFingerprint) else {
+                    self.status = DisplayControlText.text("找不到可用的區網 IPv4 位址。", "No LAN IPv4 address is available.")
+                    return
+                }
+                self.pairingInvitation = invitation
+                invitation.start(onCode: { [weak self] in self?.pairingCode = $0 },
+                                 onEnd: { [weak self] error in
+                    self?.cancelPairingCode()
+                    if let error { self?.status = error.localizedDescription }
+                }) { [weak self] pin, reply in
+                    guard let self, !self.pairingBusy else { reply(false); return }
+                    self.updatePairing(pin, onFailure: { reply(false) }) {
+                        reply(true)
+                        UserDefaults.standard.set(true, forKey: DefaultsKey.workstationDeskflowEnabled)
+                        self.pairingCode = ""
+                    }
+                }
+            } catch { self.status = error.localizedDescription }
+        }
+    }
+
+    private func cancelPairingCode() {
+        pairingInvitation?.cancel()
+        pairingInvitation = nil
+        pairingCode = ""
+    }
+
     func savePairing(_ fingerprint: String, completion: @escaping () -> Void) {
         let pin = fingerprint.trimmingCharacters(in: .whitespacesAndNewlines).replacingOccurrences(of: ":", with: "").lowercased()
         guard pin.range(of: "^[0-9a-f]{64}$", options: .regularExpression) != nil else {
@@ -105,6 +139,7 @@ final class WorkstationSwitchService: ObservableObject {
 
     func forgetPairing() {
         guard !pairingBusy else { return }
+        cancelPairingCode()
         do {
             if FileManager.default.fileExists(atPath: Self.pinnedClient.path) {
                 try FileManager.default.removeItem(at: Self.pinnedClient)
@@ -117,10 +152,12 @@ final class WorkstationSwitchService: ObservableObject {
         } catch { status = error.localizedDescription }
     }
 
-    private func updatePairing(_ fingerprint: String?, completion: (() -> Void)? = nil) {
+    private func updatePairing(_ fingerprint: String?, onFailure: (() -> Void)? = nil,
+                               completion: (() -> Void)? = nil) {
         guard !pairingBusy else { return }
         guard let script = Bundle.main.url(forResource: "setup-workstation-deskflow", withExtension: "sh") else {
             status = DisplayControlText.text("找不到內建配對工具。", "The pairing tool is missing from this build.")
+            onFailure?()
             return
         }
         pairingBusy = true
@@ -153,10 +190,12 @@ final class WorkstationSwitchService: ObservableObject {
                     if fingerprint != nil {
                         self.stopDeskflow()
                         self.restartDeskflow = self.deskflow != nil
-                        completion?()
-                        self.syncWithPreferences()
                     }
-                case let .failure(error): self.status = error.localizedDescription
+                    completion?()
+                    if fingerprint != nil { self.syncWithPreferences() }
+                case let .failure(error):
+                    self.status = error.localizedDescription
+                    onFailure?()
                 }
             }
         }
@@ -175,6 +214,7 @@ final class WorkstationSwitchService: ObservableObject {
 
     func stop() {
         generation &+= 1
+        cancelPairingCode()
         hotkey.unregister()
         stopDeskflow()
     }
@@ -205,12 +245,13 @@ final class WorkstationSwitchService: ObservableObject {
             status = DisplayControlText.text("請先允許實用小工具使用輔助使用。", "Allow this app in macOS Accessibility before starting Deskflow.")
             return
         }
-        let executable = URL(fileURLWithPath: "/Applications/Deskflow.app/Contents/MacOS/deskflow-core")
+        let executable = Bundle.main.bundleURL
+            .appendingPathComponent("Contents/Helpers/Deskflow.app/Contents/MacOS/deskflow-core")
         let config = Self.deskflowDirectory.appendingPathComponent("Deskflow.conf")
         guard FileManager.default.isExecutableFile(atPath: executable.path),
               FileManager.default.isReadableFile(atPath: config.path),
               FileManager.default.isReadableFile(atPath: Self.pinnedClient.path) else {
-            status = DisplayControlText.text("請先安裝 Deskflow 並建立伺服器設定。", "Install Deskflow and prepare its server profile first.")
+            status = DisplayControlText.text("找不到內建區網輸入引擎或配對設定。", "The bundled input engine or pairing profile is missing.")
             return
         }
         do { try migrateDeskflowShortcut() }
