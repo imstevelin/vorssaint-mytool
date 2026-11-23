@@ -324,42 +324,46 @@ final class WorkstationSwitchService: ObservableObject {
             }
         } else {
             fade.cover()
-            let deadline = ProcessInfo.processInfo.systemUptime + 11
+            let deadline = ProcessInfo.processInfo.systemUptime + 14
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.55) { [weak self] in
-                self?.revealWhenMacIsVisible(epoch: epoch, deadline: deadline, stableSince: nil)
+                self?.revealWhenMacIsVisible(epoch: epoch, deadline: deadline, inputSince: nil, litSince: nil)
             }
         }
     }
 
-    private func revealWhenMacIsVisible(epoch: Int, deadline: TimeInterval, stableSince: TimeInterval?) {
+    private func revealWhenMacIsVisible(epoch: Int, deadline: TimeInterval,
+                                        inputSince: TimeInterval?, litSince: TimeInterval?) {
         guard fadeGeneration == epoch else { return }
         if ProcessInfo.processInfo.systemUptime >= deadline {
             fade.reveal()
             return
         }
         let covered = fade.cover()
-        let retry = { [weak self] (since: TimeInterval?) in
+        let retry = { [weak self] (input: TimeInterval?, lit: TimeInterval?) in
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.22) {
-                self?.revealWhenMacIsVisible(epoch: epoch, deadline: deadline, stableSince: since)
+                self?.revealWhenMacIsVisible(epoch: epoch, deadline: deadline, inputSince: input, litSince: lit)
             }
         }
-        guard covered, let monitor, let settings else { retry(nil); return }
+        guard covered, let monitor, let settings else { retry(nil, nil); return }
         BrightnessService.shared.workstationInput(for: monitor, checkBacklight: true) { [weak self] result in
             guard let self, self.fadeGeneration == epoch else { return }
-            let ready: Bool
-            switch result {
-            case let .current(code) where code == settings.mac.code: ready = true
-            case let .dark(code) where code == settings.mac.code: ready = false
-            default:
-                retry(nil)
-                return
-            }
             let now = ProcessInfo.processInfo.systemUptime
-            let since = max(stableSince ?? now, self.fade.lastDisplayChange)
-            if ready, now - since >= 3.4 {
-                self.fade.reveal()
-            } else {
-                retry(since)
+            let displayChange = self.fade.lastDisplayChange
+            let input = max(inputSince ?? now, displayChange)
+            switch result {
+            case let .current(code) where code == settings.mac.code:
+                // VCP reports the restored backlight before the panel visibly
+                // presents the Mac signal. Keep the black frame through that gap.
+                let lit = max(litSince ?? now, displayChange)
+                if now - input >= 3.4, now - lit >= 1.8 {
+                    self.fade.reveal()
+                } else {
+                    retry(input, lit)
+                }
+            case let .dark(code) where code == settings.mac.code:
+                retry(input, nil)
+            default:
+                retry(nil, nil)
             }
         }
     }
@@ -473,7 +477,7 @@ private final class WorkstationFade {
             completion()
             return
         }
-        animate(panel, to: 1, duration: 0.38) { [weak self] in
+        animate(panel, to: 1) { [weak self] in
             guard let self, self.revision == started else { return }
             self.cover()
             completion()
@@ -485,7 +489,7 @@ private final class WorkstationFade {
         keepCovered = false
         let started = revision
         guard let panel else { return }
-        animate(panel, to: 0, duration: 0.82) { [weak self] in
+        animate(panel, to: 0) { [weak self] in
             guard let self, self.revision == started else { return }
             self.clear()
         }
@@ -530,10 +534,9 @@ private final class WorkstationFade {
         return window
     }
 
-    private func animate(_ window: NSPanel, to opacity: CGFloat, duration: TimeInterval,
-                         completion: @escaping () -> Void) {
+    private func animate(_ window: NSPanel, to opacity: CGFloat, completion: @escaping () -> Void) {
         NSAnimationContext.runAnimationGroup { context in
-            context.duration = duration
+            context.duration = 0.38
             window.animator().alphaValue = opacity
         } completionHandler: {
             completion()
