@@ -26,12 +26,16 @@ enum WorkstationPort: Int, CaseIterable, Identifiable {
 
 final class WorkstationSwitchService: ObservableObject {
     static let shared = WorkstationSwitchService()
-    private static let shortcut = GlobalShortcut(keyCode: Int64(kVK_F9), modifiers: [.control, .option, .shift])
+    static let shortcutLabel = "⌃⌘ \\"
+    private static let shortcut = GlobalShortcut(keyCode: Int64(kVK_ANSI_Backslash), modifiers: [.control, .command])
     private let hotkey = QuickToolHotkey(id: 82)
     private var deskflow: Process?
     private var deskflowOutput: Pipe?
     private var restartDeskflow = false
     private var generation = 0
+    private var fadeGeneration = 0
+    private let fade = WorkstationFade()
+    private let capsRelay = WorkstationCapsRelay()
     @Published private(set) var busy = false
     @Published private(set) var status = ""
     @Published private(set) var shortcutAvailable = true
@@ -185,11 +189,11 @@ final class WorkstationSwitchService: ObservableObject {
     private func migrateDeskflowShortcut() throws {
         let layout = Self.deskflowDirectory.appendingPathComponent("workstation.conf")
         let original = try String(contentsOf: layout, encoding: .utf8)
-        // Deskflow's macOS hotkey registration maps Super to Option and Alt to Command.
-        let updated = original.replacingOccurrences(
-            of: "keystroke(Control+Alt+Shift+F9) = switchToNextScreen",
-            with: "keystroke(Control+Super+Shift+F9) = switchToNextScreen"
-        )
+        // Deskflow's macOS hotkey registration maps Alt to Command.
+        let replacement = #"keystroke(Control+Alt+\) = switchToNextScreen"#
+        let updated = original
+            .replacingOccurrences(of: "keystroke(Control+Alt+Shift+F9) = switchToNextScreen", with: replacement)
+            .replacingOccurrences(of: "keystroke(Control+Super+Shift+F9) = switchToNextScreen", with: replacement)
         if updated != original { try updated.write(to: layout, atomically: true, encoding: .utf8) }
     }
 
@@ -215,18 +219,9 @@ final class WorkstationSwitchService: ObservableObject {
         let process = Process()
         let output = Pipe()
         let reader = FileHandleLogReader { [weak self, weak process] line in
-            if line.contains("accepted client connection") || line.contains("disconnecting client") || line.contains("forced disconnection of client") {
-                DispatchQueue.main.async {
-                    guard let self, let process, self.deskflow === process else { return }
-                    self.clientConnected = line.contains("accepted client connection")
-                }
-            }
-            if line.contains("failed to register hotkey") {
-                DispatchQueue.main.async {
-                    guard let self, let process, self.deskflow === process else { return }
-                    self.status = DisplayControlText.text("Deskflow 無法註冊快捷鍵。請檢查是否有其他程式使用同一組按鍵。",
-                                                          "Deskflow could not register the shortcut. Check whether another app uses it.")
-                }
+            DispatchQueue.main.async {
+                guard let self, let process, self.deskflow === process else { return }
+                self.handleDeskflowLine(line)
             }
         }
         process.executableURL = executable
@@ -241,6 +236,7 @@ final class WorkstationSwitchService: ObservableObject {
                 self.deskflowOutput?.fileHandleForReading.readabilityHandler = nil
                 self.deskflowOutput = nil
                 self.clientConnected = false
+                self.resetDeskflowEffects()
                 if self.restartDeskflow {
                     self.restartDeskflow = false
                     self.syncWithPreferences()
@@ -254,8 +250,8 @@ final class WorkstationSwitchService: ObservableObject {
             try process.run()
             deskflow = process
             deskflowOutput = output
-            status = DisplayControlText.text("Deskflow 伺服器已啟動。輸入和顯示切換由 ⌃⌥⇧F9 控制。",
-                                             "Deskflow server started. Use Control–Option–Shift–F9 to switch input and video.")
+            status = DisplayControlText.text("Deskflow 伺服器已啟動。按 \(Self.shortcutLabel) 切換輸入和畫面。",
+                                             "Deskflow server started. Press \(Self.shortcutLabel) to switch input and video.")
         } catch {
             output.fileHandleForReading.readabilityHandler = nil
             status = error.localizedDescription
@@ -265,7 +261,79 @@ final class WorkstationSwitchService: ObservableObject {
     private func stopDeskflow() {
         restartDeskflow = false
         clientConnected = false
+        resetDeskflowEffects()
         if let process = deskflow, process.isRunning { process.terminate() }
+    }
+
+    private func handleDeskflowLine(_ line: String) {
+        if line.contains("accepted client connection") {
+            clientConnected = true
+            if !capsRelay.start() {
+                status = DisplayControlText.text("Caps Lock 轉送無法啟動。請在 macOS 隱私權設定允許實用小工具監控輸入。",
+                                                 "Caps Lock forwarding could not start. Allow Input Monitoring for this app.")
+            }
+        } else if line.contains("disconnecting client") || line.contains("forced disconnection of client") {
+            clientConnected = false
+            resetDeskflowEffects()
+        } else if line.contains(#"switch from "workstation-mac" to "workstation-windows""#) {
+            transitionDeskflow(toWindows: true)
+        } else if line.contains(#"switch from "workstation-windows" to "workstation-mac""#) {
+            transitionDeskflow(toWindows: false)
+        } else if line.contains("failed to register hotkey") {
+            status = DisplayControlText.text("Deskflow 無法註冊快捷鍵。請檢查是否有其他程式使用同一組按鍵。",
+                                             "Deskflow could not register the shortcut. Check whether another app uses it.")
+        }
+    }
+
+    private func resetDeskflowEffects() {
+        capsRelay.stop()
+        fadeGeneration &+= 1
+        fade.clear()
+    }
+
+    private func transitionDeskflow(toWindows: Bool) {
+        capsRelay.forwarding = toWindows
+        fadeGeneration &+= 1
+        let epoch = fadeGeneration
+        if toWindows {
+            fade.darkening { [weak self] in
+                guard let self, self.fadeGeneration == epoch else { return }
+                WorkstationFade.playCue()
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2.7) { [weak self] in
+                guard let self, self.fadeGeneration == epoch else { return }
+                self.fade.reveal()
+            }
+        } else {
+            fade.cover()
+            let deadline = ProcessInfo.processInfo.systemUptime + 3
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.85) { [weak self] in
+                self?.revealWhenMacIsVisible(epoch: epoch, deadline: deadline)
+            }
+        }
+    }
+
+    private func revealWhenMacIsVisible(epoch: Int, deadline: TimeInterval) {
+        guard fadeGeneration == epoch else { return }
+        if ProcessInfo.processInfo.systemUptime >= deadline {
+            fade.reveal()
+            return
+        }
+        fade.cover()
+        let retry = { [weak self] in
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                self?.revealWhenMacIsVisible(epoch: epoch, deadline: deadline)
+            }
+        }
+        guard let monitor, let settings else { retry(); return }
+        BrightnessService.shared.workstationInput(for: monitor) { [weak self] result in
+            guard let self, self.fadeGeneration == epoch else { return }
+            if case let .current(code) = result, code == settings.mac.code {
+                self.fade.reveal()
+            } else {
+                retry()
+            }
+        }
     }
 
     func diagnose() {
@@ -285,7 +353,12 @@ final class WorkstationSwitchService: ObservableObject {
         guard !busy, deskflow == nil, AppFeature.brightness.isAvailable, let settings else { return }
         guard let monitor else { showMissingMonitor(); return }
         busy = true
-        writeInput(monitor, from: settings.mac.code, to: settings.windows.code, epoch: generation)
+        let epoch = generation
+        fade.darkening {
+            guard self.generation == epoch else { self.busy = false; return }
+            WorkstationFade.playCue()
+            self.writeInput(monitor, from: settings.mac.code, to: settings.windows.code, epoch: epoch)
+        }
     }
 
     private func writeInput(_ monitor: CGDirectDisplayID, from source: UInt16, to target: UInt16, epoch: Int) {
@@ -305,6 +378,7 @@ final class WorkstationSwitchService: ObservableObject {
                 self.finishSwitch(result, target: target, epoch: epoch)
             default:
                 self.busy = false
+                self.fade.reveal()
                 self.status = DisplayControlText.text("切換失敗，請檢查目前接孔與 DDC/CI。", "Switch failed. Check the current input and DDC/CI.")
             }
         }
@@ -313,6 +387,7 @@ final class WorkstationSwitchService: ObservableObject {
     private func finishSwitch(_ result: WorkstationInputResult, target: UInt16, epoch: Int) {
         busy = false
         guard generation == epoch else { return }
+        fade.reveal()
         if case let .current(code) = result, code != target {
             status = DisplayControlText.text("螢幕尚未切到 Windows。", "The monitor has not switched to Windows.")
             return
@@ -324,6 +399,137 @@ final class WorkstationSwitchService: ObservableObject {
         status = DisplayControlText.text("讀不到 PA328QV 的 DDC/CI，請檢查顯示控制和影像連線。", "Cannot read DDC/CI from the PA328QV. Check display control and the video connection.")
     }
 
+}
+
+private final class WorkstationFade {
+    private var panel: NSPanel?
+    private var revision = 0
+    private static let duration = 0.38
+
+    func cover() {
+        revision &+= 1
+        show(opacity: 1)?.alphaValue = 1
+    }
+
+    func darkening(completion: @escaping () -> Void) {
+        revision &+= 1
+        let started = revision
+        guard let panel = show(opacity: 0) else { completion(); return }
+        animate(panel, to: 1) { [weak self] in
+            guard self?.revision == started else { return }
+            completion()
+        }
+    }
+
+    func reveal() {
+        revision &+= 1
+        let started = revision
+        guard let panel else { return }
+        animate(panel, to: 0) { [weak self] in
+            guard let self, self.revision == started else { return }
+            self.clear()
+        }
+    }
+
+    func clear() {
+        revision &+= 1
+        panel?.orderOut(nil)
+        panel = nil
+    }
+
+    static func playCue() {
+        if let sound = NSSound(named: NSSound.Name("Tink")) {
+            sound.play()
+        } else {
+            NSSound.beep()
+        }
+    }
+
+    private func show(opacity: CGFloat) -> NSPanel? {
+        guard let screen = NSScreen.screens.first(where: {
+            guard let number = $0.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber else { return false }
+            return CGDisplayVendorNumber(number.uint32Value) == 0x06b3 && CGDisplayModelNumber(number.uint32Value) == 0x32c2
+        }) else { return nil }
+        if let panel {
+            if panel.frame != screen.frame { panel.setFrame(screen.frame, display: true) }
+            return panel
+        }
+        let window = NSPanel(contentRect: screen.frame, styleMask: [.borderless, .nonactivatingPanel],
+                             backing: .buffered, defer: false)
+        window.backgroundColor = .black
+        window.isOpaque = true
+        window.hasShadow = false
+        window.ignoresMouseEvents = true
+        window.hidesOnDeactivate = false
+        window.level = .screenSaver
+        window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle]
+        window.alphaValue = opacity
+        window.orderFrontRegardless()
+        panel = window
+        return window
+    }
+
+    private func animate(_ window: NSPanel, to opacity: CGFloat, completion: @escaping () -> Void) {
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = Self.duration
+            window.animator().alphaValue = opacity
+        } completionHandler: {
+            completion()
+        }
+    }
+}
+
+private final class WorkstationCapsRelay {
+    var forwarding = false
+    private var tap: CFMachPort?
+    private var runLoopSource: CFRunLoopSource?
+    private var capsOn = false
+
+    func start() -> Bool {
+        if tap != nil { return true }
+        capsOn = CGEventSource.flagsState(.combinedSessionState).contains(.maskAlphaShift)
+        let mask = CGEventMask(1) << CGEventType.flagsChanged.rawValue
+        guard let port = CGEvent.tapCreate(tap: .cghidEventTap, place: .headInsertEventTap, options: .defaultTap,
+                    eventsOfInterest: mask, callback: { proxy, type, event, context in
+            guard let context else { return Unmanaged.passUnretained(event) }
+            let relay = Unmanaged<WorkstationCapsRelay>.fromOpaque(context).takeUnretainedValue()
+            relay.handle(proxy: proxy, type: type, event: event)
+            return Unmanaged.passUnretained(event)
+        }, userInfo: Unmanaged.passUnretained(self).toOpaque()),
+        let source = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, port, 0) else { return false }
+        tap = port
+        runLoopSource = source
+        CFRunLoopAddSource(CFRunLoopGetMain(), source, .commonModes)
+        CGEvent.tapEnable(tap: port, enable: true)
+        return true
+    }
+
+    func stop() {
+        forwarding = false
+        if let tap { CFMachPortInvalidate(tap) }
+        if let runLoopSource { CFRunLoopRemoveSource(CFRunLoopGetMain(), runLoopSource, .commonModes) }
+        tap = nil
+        runLoopSource = nil
+    }
+
+    private func handle(proxy: CGEventTapProxy, type: CGEventType, event: CGEvent) {
+        if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
+            if let tap { CGEvent.tapEnable(tap: tap, enable: true) }
+            return
+        }
+        let previous = capsOn
+        capsOn = event.flags.contains(.maskAlphaShift)
+        guard forwarding, capsOn != previous,
+              event.getIntegerValueField(.keyboardEventKeycode) == Int64(kVK_CapsLock) else { return }
+
+        // Deskflow discards Caps Lock on the receiving end. Forward a regular
+        // key pair through the existing authenticated Deskflow connection.
+        for isDown in [true, false] {
+            guard let forwarded = CGEvent(keyboardEventSource: nil, virtualKey: CGKeyCode(kVK_F20), keyDown: isDown) else { continue }
+            forwarded.flags = event.flags.subtracting(.maskAlphaShift)
+            forwarded.tapPostEvent(proxy)
+        }
+    }
 }
 
 private final class FileHandleLogReader {

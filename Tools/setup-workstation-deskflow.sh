@@ -25,7 +25,7 @@ fi
 printf 'v2:sha256:%s\n' "$pin" > "$tls/trusted-clients"
 cat > "$profile/workstation.conf" <<'EOF'
 section: options
-    keystroke(Control+Super+Shift+F9) = switchToNextScreen
+    keystroke(Control+Alt+\) = switchToNextScreen
 end
 EOF
 cat > "$profile/Deskflow.conf" <<EOF

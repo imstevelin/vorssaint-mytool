@@ -447,7 +447,7 @@ struct EnergySettings: View {
                     Text(DisplayControlText.text("兩台電腦必須使用不同接孔。", "Choose different inputs for the two computers."))
                         .font(.caption).foregroundStyle(.secondary)
                 }
-                Text(workstation.shortcutAvailable ? "⌃⌥⇧ F9" : DisplayControlText.text("快捷鍵已被占用，請使用按鈕。", "The shortcut is in use. Use the button."))
+                Text(workstation.shortcutAvailable ? WorkstationSwitchService.shortcutLabel : DisplayControlText.text("快捷鍵已被占用，請使用按鈕。", "The shortcut is in use. Use the button."))
                     .font(.caption).foregroundStyle(.secondary)
                 if !workstation.status.isEmpty {
                     Text(workstation.status).font(.caption).foregroundStyle(.secondary)
