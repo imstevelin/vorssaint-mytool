@@ -438,8 +438,10 @@ private final class WorkstationFade {
     private typealias WindowServerConnection = @convention(c) () -> Int32
     private typealias WindowServerSetProperty = @convention(c) (Int32, Int32, CFString, CFTypeRef) -> Int32
     private static let backgroundCursorControl: ((Bool) -> Void)? = {
-        guard let connection = dlsym(nil, "_CGSDefaultConnection"),
-              let setProperty = dlsym(nil, "CGSSetConnectionProperty") else { return nil }
+        let framework = "/System/Library/Frameworks/CoreGraphics.framework/CoreGraphics"
+        guard let handle = dlopen(framework, RTLD_LAZY),
+              let connection = dlsym(handle, "_CGSDefaultConnection"),
+              let setProperty = dlsym(handle, "CGSSetConnectionProperty") else { return nil }
         let getConnection = unsafeBitCast(connection, to: WindowServerConnection.self)
         let set = unsafeBitCast(setProperty, to: WindowServerSetProperty.self)
         return { allowed in
