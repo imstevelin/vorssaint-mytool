@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import AppKit
 import ApplicationServices
+import Darwin
 import Carbon.HIToolbox
 
 enum WorkstationInputResult {
@@ -28,10 +29,16 @@ final class WorkstationSwitchService: ObservableObject {
     private static let shortcut = GlobalShortcut(keyCode: Int64(kVK_F9), modifiers: [.control, .option, .shift])
     private let hotkey = QuickToolHotkey(id: 82)
     private var deskflow: Process?
+    private var deskflowOutput: Pipe?
+    private var restartDeskflow = false
     private var generation = 0
     @Published private(set) var busy = false
     @Published private(set) var status = ""
     @Published private(set) var shortcutAvailable = true
+    @Published private(set) var localFingerprint = ""
+    @Published private(set) var pairedFingerprint = ""
+    @Published private(set) var pairingBusy = false
+    @Published private(set) var clientConnected = false
 
     private var settings: (mac: WorkstationPort, windows: WorkstationPort)? {
         let defaults = UserDefaults.standard
@@ -53,6 +60,101 @@ final class WorkstationSwitchService: ObservableObject {
 
     static let deskflowDirectory = FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent("Library/Application Support/Vorssaint Workstation", isDirectory: true)
+
+    private static let pinnedClient = deskflowDirectory.appendingPathComponent("tls/trusted-clients")
+
+    var lanAddress: String {
+        var interfaces: UnsafeMutablePointer<ifaddrs>?
+        guard getifaddrs(&interfaces) == 0, let first = interfaces else { return ProcessInfo.processInfo.hostName }
+        defer { freeifaddrs(first) }
+        var values: [String] = []
+        var cursor: UnsafeMutablePointer<ifaddrs>? = first
+        while let current = cursor {
+            let entry = current.pointee
+            cursor = entry.ifa_next
+            guard let address = entry.ifa_addr, address.pointee.sa_family == UInt8(AF_INET),
+                  entry.ifa_flags & UInt32(IFF_LOOPBACK) == 0,
+                  entry.ifa_flags & UInt32(IFF_UP) != 0 else { continue }
+            var host = [CChar](repeating: 0, count: Int(NI_MAXHOST))
+            let hostLength = socklen_t(host.count)
+            if getnameinfo(address, socklen_t(address.pointee.sa_len), &host, hostLength, nil, 0, NI_NUMERICHOST) == 0 {
+                let value = String(cString: host)
+                if String(cString: entry.ifa_name).hasPrefix("en") { return value }
+                values.append(value)
+            }
+        }
+        return values.first ?? ProcessInfo.processInfo.hostName
+    }
+
+    func loadPairing() { updatePairing(nil) }
+
+    func savePairing(_ fingerprint: String, completion: @escaping () -> Void) {
+        let pin = fingerprint.trimmingCharacters(in: .whitespacesAndNewlines).replacingOccurrences(of: ":", with: "").lowercased()
+        guard pin.range(of: "^[0-9a-f]{64}$", options: .regularExpression) != nil else {
+            status = DisplayControlText.text("請輸入 64 位十六進位 Windows 指紋。", "Enter the 64-character Windows SHA-256 fingerprint.")
+            return
+        }
+        updatePairing(pin, completion: completion)
+    }
+
+    func forgetPairing() {
+        guard !pairingBusy else { return }
+        do {
+            if FileManager.default.fileExists(atPath: Self.pinnedClient.path) {
+                try FileManager.default.removeItem(at: Self.pinnedClient)
+            }
+            stopDeskflow()
+            pairedFingerprint = ""
+            UserDefaults.standard.set(false, forKey: DefaultsKey.workstationDeskflowEnabled)
+            syncWithPreferences()
+            status = DisplayControlText.text("已移除 Windows 配對。Mac 自己的指紋保持有效。", "Windows pairing removed. The Mac fingerprint is unchanged.")
+        } catch { status = error.localizedDescription }
+    }
+
+    private func updatePairing(_ fingerprint: String?, completion: (() -> Void)? = nil) {
+        guard !pairingBusy else { return }
+        guard let script = Bundle.main.url(forResource: "setup-workstation-deskflow", withExtension: "sh") else {
+            status = DisplayControlText.text("找不到內建配對工具。", "The pairing tool is missing from this build.")
+            return
+        }
+        pairingBusy = true
+        DispatchQueue.global(qos: .userInitiated).async {
+            let result: Result<(String, String), Error>
+            do {
+                let process = Process()
+                let output = Pipe()
+                process.executableURL = URL(fileURLWithPath: "/bin/bash")
+                process.arguments = [script.path] + (fingerprint.map { [$0] } ?? [])
+                process.standardOutput = output
+                process.standardError = output
+                try process.run()
+                let data = output.fileHandleForReading.readDataToEndOfFile()
+                process.waitUntilExit()
+                let message = String(decoding: data, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+                guard process.terminationStatus == 0, message.range(of: "^[0-9a-f]{64}$", options: .regularExpression) != nil else {
+                    throw NSError(domain: "DeskflowPairing", code: Int(process.terminationStatus),
+                                  userInfo: [NSLocalizedDescriptionKey: message.isEmpty ? "Deskflow pairing failed." : message])
+                }
+                let pinned = (try? String(contentsOf: Self.pinnedClient, encoding: .utf8))?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                result = .success((message, pinned.hasPrefix("v2:sha256:") ? String(pinned.dropFirst(10)) : ""))
+            } catch { result = .failure(error) }
+            DispatchQueue.main.async {
+                self.pairingBusy = false
+                switch result {
+                case let .success((local, peer)):
+                    self.localFingerprint = local
+                    self.pairedFingerprint = peer
+                    if fingerprint != nil {
+                        self.stopDeskflow()
+                        self.restartDeskflow = self.deskflow != nil
+                        completion?()
+                        self.syncWithPreferences()
+                    }
+                case let .failure(error): self.status = error.localizedDescription
+                }
+            }
+        }
+    }
 
     func syncWithPreferences() {
         let defaults = UserDefaults.standard
@@ -89,19 +191,38 @@ final class WorkstationSwitchService: ObservableObject {
         let executable = URL(fileURLWithPath: "/Applications/Deskflow.app/Contents/MacOS/deskflow-core")
         let config = Self.deskflowDirectory.appendingPathComponent("Deskflow.conf")
         guard FileManager.default.isExecutableFile(atPath: executable.path),
-              FileManager.default.isReadableFile(atPath: config.path) else {
+              FileManager.default.isReadableFile(atPath: config.path),
+              FileManager.default.isReadableFile(atPath: Self.pinnedClient.path) else {
             status = DisplayControlText.text("請先安裝 Deskflow 並建立伺服器設定。", "Install Deskflow and prepare its server profile first.")
             return
         }
         let process = Process()
+        let output = Pipe()
+        let reader = FileHandleLogReader { [weak self, weak process] line in
+            if line.contains("accepted client connection") || line.contains("disconnecting client") || line.contains("forced disconnection of client") {
+                DispatchQueue.main.async {
+                    guard let self, let process, self.deskflow === process else { return }
+                    self.clientConnected = line.contains("accepted client connection")
+                }
+            }
+        }
         process.executableURL = executable
         process.arguments = ["server", "--settings", config.path]
-        process.standardOutput = FileHandle.nullDevice
-        process.standardError = FileHandle.nullDevice
+        process.standardOutput = output
+        process.standardError = output
+        output.fileHandleForReading.readabilityHandler = { handle in reader.consume(handle.availableData) }
         process.terminationHandler = { [weak self] ended in
             DispatchQueue.main.async {
                 guard let self, self.deskflow === ended else { return }
                 self.deskflow = nil
+                self.deskflowOutput?.fileHandleForReading.readabilityHandler = nil
+                self.deskflowOutput = nil
+                self.clientConnected = false
+                if self.restartDeskflow {
+                    self.restartDeskflow = false
+                    self.syncWithPreferences()
+                    return
+                }
                 self.status = DisplayControlText.text("Deskflow 伺服器已停止，請查看設定資料夾的日誌。",
                                                       "Deskflow stopped. Check the log in its profile folder.")
             }
@@ -109,17 +230,19 @@ final class WorkstationSwitchService: ObservableObject {
         do {
             try process.run()
             deskflow = process
+            deskflowOutput = output
             status = DisplayControlText.text("Deskflow 伺服器已啟動。輸入和顯示切換由 ⌃⌥⇧F9 控制。",
                                              "Deskflow server started. Use Control–Option–Shift–F9 to switch input and video.")
         } catch {
+            output.fileHandleForReading.readabilityHandler = nil
             status = error.localizedDescription
         }
     }
 
     private func stopDeskflow() {
-        let process = deskflow
-        deskflow = nil
-        if let process, process.isRunning { process.terminate() }
+        restartDeskflow = false
+        clientConnected = false
+        if let process = deskflow, process.isRunning { process.terminate() }
     }
 
     func diagnose() {
@@ -178,4 +301,20 @@ final class WorkstationSwitchService: ObservableObject {
         status = DisplayControlText.text("讀不到 PA328QV 的 DDC/CI，請檢查顯示控制和影像連線。", "Cannot read DDC/CI from the PA328QV. Check display control and the video connection.")
     }
 
+}
+
+private final class FileHandleLogReader {
+    private var pending = Data()
+    private let onLine: (String) -> Void
+
+    init(onLine: @escaping (String) -> Void) { self.onLine = onLine }
+
+    func consume(_ bytes: Data) {
+        pending.append(bytes)
+        while let newline = pending.firstIndex(of: 10) {
+            onLine(String(decoding: pending[..<newline], as: UTF8.self))
+            pending.removeSubrange(...newline)
+        }
+        if pending.count > 65_536 { pending.removeAll(keepingCapacity: false) }
+    }
 }
