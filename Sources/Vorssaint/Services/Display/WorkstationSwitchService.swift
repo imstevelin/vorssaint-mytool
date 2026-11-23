@@ -272,7 +272,8 @@ final class WorkstationSwitchService: ObservableObject {
                 status = DisplayControlText.text("Caps Lock 轉送無法啟動。請在 macOS 隱私權設定允許實用小工具監控輸入。",
                                                  "Caps Lock forwarding could not start. Allow Input Monitoring for this app.")
             }
-        } else if line.contains("disconnecting client") || line.contains("forced disconnection of client") {
+        } else if line.contains("disconnecting client") || line.contains("forced disconnection of client")
+                    || line.contains(#"jump from "workstation-windows" to "workstation-mac""#) {
             clientConnected = false
             resetDeskflowEffects()
         } else if line.contains(#"switch from "workstation-mac" to "workstation-windows""#) {
