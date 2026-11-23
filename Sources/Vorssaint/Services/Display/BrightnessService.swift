@@ -3313,6 +3313,7 @@ final class BrightnessService: ObservableObject {
     /// VCP 0x60 is an enumeration of physical inputs. Keep it out of the
     /// normalized slider controls and share their serialized DDC transport.
     func workstationInput(for id: CGDirectDisplayID, from expected: UInt16? = nil, to target: UInt16? = nil,
+                          checkBacklight: Bool = false,
                           completion: @escaping (WorkstationInputResult) -> Void) {
         stateLock.lock()
         let route = hardwareRoutes[id]
@@ -3331,6 +3332,9 @@ final class BrightnessService: ObservableObject {
                     let accepted = self.ddcSend(to: id, service: route.service, chip: route.chipAddress,
                         packet: BrightnessSupport.writePacket(code: 0x60, value: target))
                     result = accepted ? .sent : .unavailable
+                } else if checkBacklight,
+                          (self.ddcReadControl(0x10, for: id, service: route.service, chip: route.chipAddress)?.current ?? 0) == 0 {
+                    result = .dark(reading.current)
                 } else {
                     result = .current(reading.current)
                 }
