@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import AppKit
+import QuartzCore
 import ApplicationServices
 import Darwin
 import Carbon.HIToolbox
@@ -323,7 +324,7 @@ final class WorkstationSwitchService: ObservableObject {
                 }
             }
         } else {
-            fade.cover()
+            fade.cover(hidingCursor: true)
             let deadline = ProcessInfo.processInfo.systemUptime + 14
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.55) { [weak self] in
                 self?.revealWhenMacIsVisible(epoch: epoch, deadline: deadline, inputSince: nil, litSince: nil)
@@ -338,7 +339,7 @@ final class WorkstationSwitchService: ObservableObject {
             fade.reveal()
             return
         }
-        let covered = fade.cover()
+        let covered = fade.cover(hidingCursor: true)
         let retry = { [weak self] (input: TimeInterval?, lit: TimeInterval?) in
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.22) {
                 self?.revealWhenMacIsVisible(epoch: epoch, deadline: deadline, inputSince: input, litSince: lit)
@@ -352,10 +353,10 @@ final class WorkstationSwitchService: ObservableObject {
             let input = max(inputSince ?? now, displayChange)
             switch result {
             case let .current(code) where code == settings.mac.code:
-                // VCP reports the restored backlight before the panel visibly
-                // presents the Mac signal. Keep the black frame through that gap.
+                // Leave a short buffer after the monitor reports restored
+                // backlight so the first frames of the fade are visible.
                 let lit = max(litSince ?? now, displayChange)
-                if now - input >= 3.4, now - lit >= 1.8 {
+                if now - input >= 1.0, now - lit >= 0.5 {
                     self.fade.reveal()
                 } else {
                     retry(input, lit)
@@ -434,9 +435,27 @@ final class WorkstationSwitchService: ObservableObject {
 }
 
 private final class WorkstationFade {
+    private typealias WindowServerConnection = @convention(c) () -> Int32
+    private typealias WindowServerSetProperty = @convention(c) (Int32, Int32, CFString, CFTypeRef) -> Int32
+    private static let backgroundCursorControl: ((Bool) -> Void)? = {
+        let framework = "/System/Library/Frameworks/CoreGraphics.framework/CoreGraphics"
+        guard let handle = dlopen(framework, RTLD_LAZY),
+              let connection = dlsym(handle, "_CGSDefaultConnection"),
+              let setProperty = dlsym(handle, "CGSSetConnectionProperty") else { return nil }
+        let getConnection = unsafeBitCast(connection, to: WindowServerConnection.self)
+        let set = unsafeBitCast(setProperty, to: WindowServerSetProperty.self)
+        return { allowed in
+            let id = getConnection()
+            // Quartz cursor calls may be ignored for a menu-bar app in the background.
+            _ = set(id, id, "SetsCursorInBackground" as CFString, allowed ? kCFBooleanTrue : kCFBooleanFalse)
+        }
+    }()
+
     private var panel: NSPanel?
+    private var mask: NSView?
     private var revision = 0
     private var keepCovered = false
+    private var cursorHidden = false
     private var screenObserver: NSObjectProtocol?
     private(set) var lastDisplayChange: TimeInterval = 0
 
@@ -452,32 +471,41 @@ private final class WorkstationFade {
 
     deinit {
         if let screenObserver { NotificationCenter.default.removeObserver(screenObserver) }
+        restoreCursor()
     }
 
     @discardableResult
-    func cover() -> Bool {
+    func cover(hidingCursor: Bool = false) -> Bool {
         if !keepCovered { revision &+= 1 }
         keepCovered = true
-        guard let panel = show(opacity: 1) else {
+        guard let mask = show(opacity: 1), let panel else {
             self.panel?.orderOut(nil)
             self.panel = nil
+            self.mask = nil
             return false
         }
-        panel.alphaValue = 1
+        mask.alphaValue = 1
         if !panel.isVisible { panel.orderFrontRegardless() }
+        // The window server draws the hardware cursor above the panel.
+        if hidingCursor, !cursorHidden {
+            Self.backgroundCursorControl?(true)
+            cursorHidden = CGDisplayHideCursor(CGMainDisplayID()) == .success
+            if !cursorHidden { Self.backgroundCursorControl?(false) }
+        }
         return true
     }
 
     func darkening(completion: @escaping () -> Void) {
+        restoreCursor()
         revision &+= 1
         keepCovered = false
         let started = revision
-        guard let panel = show(opacity: 0) else {
+        guard let mask = show(opacity: 0) else {
             cover()
             completion()
             return
         }
-        animate(panel, to: 1) { [weak self] in
+        animate(mask, to: 1, duration: 0.38) { [weak self] in
             guard let self, self.revision == started else { return }
             self.cover()
             completion()
@@ -488,8 +516,8 @@ private final class WorkstationFade {
         revision &+= 1
         keepCovered = false
         let started = revision
-        guard let panel else { return }
-        animate(panel, to: 0) { [weak self] in
+        guard let mask else { clear(); return }
+        animate(mask, to: 0, duration: 0.85) { [weak self] in
             guard let self, self.revision == started else { return }
             self.clear()
         }
@@ -500,6 +528,15 @@ private final class WorkstationFade {
         keepCovered = false
         panel?.orderOut(nil)
         panel = nil
+        mask = nil
+        restoreCursor()
+    }
+
+    private func restoreCursor() {
+        guard cursorHidden else { return }
+        cursorHidden = false
+        CGDisplayShowCursor(CGMainDisplayID())
+        Self.backgroundCursorControl?(false)
     }
 
     static func playCue() {
@@ -510,34 +547,44 @@ private final class WorkstationFade {
         }
     }
 
-    private func show(opacity: CGFloat) -> NSPanel? {
+    private func show(opacity: CGFloat) -> NSView? {
         guard let screen = NSScreen.screens.first(where: {
             guard let number = $0.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber else { return false }
             return CGDisplayVendorNumber(number.uint32Value) == 0x06b3 && CGDisplayModelNumber(number.uint32Value) == 0x32c2
         }) else { return nil }
-        if let panel {
+        if let panel, let mask {
             if panel.frame != screen.frame { panel.setFrame(screen.frame, display: true) }
-            return panel
+            return mask
         }
         let window = NSPanel(contentRect: screen.frame, styleMask: [.borderless, .nonactivatingPanel],
                              backing: .buffered, defer: false)
-        window.backgroundColor = .black
-        window.isOpaque = true
+        window.backgroundColor = .clear
+        window.isOpaque = false
         window.hasShadow = false
         window.ignoresMouseEvents = true
         window.hidesOnDeactivate = false
         window.level = .screenSaver
         window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle]
-        window.alphaValue = opacity
+        let content = NSView(frame: NSRect(origin: .zero, size: screen.frame.size))
+        let shade = NSView(frame: content.bounds)
+        shade.autoresizingMask = [.width, .height]
+        shade.wantsLayer = true
+        shade.layer?.backgroundColor = NSColor.black.cgColor
+        shade.alphaValue = opacity
+        content.addSubview(shade)
+        window.contentView = content
         window.orderFrontRegardless()
         panel = window
-        return window
+        mask = shade
+        return shade
     }
 
-    private func animate(_ window: NSPanel, to opacity: CGFloat, completion: @escaping () -> Void) {
+    private func animate(_ shade: NSView, to opacity: CGFloat, duration: TimeInterval,
+                         completion: @escaping () -> Void) {
         NSAnimationContext.runAnimationGroup { context in
-            context.duration = 0.38
-            window.animator().alphaValue = opacity
+            context.duration = duration
+            context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            shade.animator().alphaValue = opacity
         } completionHandler: {
             completion()
         }
