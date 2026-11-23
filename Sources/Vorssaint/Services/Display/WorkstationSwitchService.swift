@@ -435,6 +435,20 @@ final class WorkstationSwitchService: ObservableObject {
 }
 
 private final class WorkstationFade {
+    private typealias WindowServerConnection = @convention(c) () -> Int32
+    private typealias WindowServerSetProperty = @convention(c) (Int32, Int32, CFString, CFTypeRef) -> Int32
+    private static let backgroundCursorControl: ((Bool) -> Void)? = {
+        guard let connection = dlsym(nil, "_CGSDefaultConnection"),
+              let setProperty = dlsym(nil, "CGSSetConnectionProperty") else { return nil }
+        let getConnection = unsafeBitCast(connection, to: WindowServerConnection.self)
+        let set = unsafeBitCast(setProperty, to: WindowServerSetProperty.self)
+        return { allowed in
+            let id = getConnection()
+            // Quartz cursor calls may be ignored for a menu-bar app in the background.
+            _ = set(id, id, "SetsCursorInBackground" as CFString, allowed ? kCFBooleanTrue : kCFBooleanFalse)
+        }
+    }()
+
     private var panel: NSPanel?
     private var mask: NSView?
     private var revision = 0
@@ -472,7 +486,9 @@ private final class WorkstationFade {
         if !panel.isVisible { panel.orderFrontRegardless() }
         // The window server draws the hardware cursor above the panel.
         if hidingCursor, !cursorHidden {
+            Self.backgroundCursorControl?(true)
             cursorHidden = CGDisplayHideCursor(CGMainDisplayID()) == .success
+            if !cursorHidden { Self.backgroundCursorControl?(false) }
         }
         return true
     }
@@ -518,6 +534,7 @@ private final class WorkstationFade {
         guard cursorHidden else { return }
         cursorHidden = false
         CGDisplayShowCursor(CGMainDisplayID())
+        Self.backgroundCursorControl?(false)
     }
 
     static func playCue() {
