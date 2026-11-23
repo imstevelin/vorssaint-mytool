@@ -301,38 +301,44 @@ final class WorkstationSwitchService: ObservableObject {
                 guard let self, self.fadeGeneration == epoch else { return }
                 WorkstationFade.playCue()
             }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 2.7) { [weak self] in
+            DispatchQueue.main.asyncAfter(deadline: .now() + 5.5) { [weak self] in
                 guard let self, self.fadeGeneration == epoch else { return }
                 self.fade.reveal()
             }
         } else {
             fade.cover()
-            let deadline = ProcessInfo.processInfo.systemUptime + 3
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.85) { [weak self] in
-                self?.revealWhenMacIsVisible(epoch: epoch, deadline: deadline)
+            let deadline = ProcessInfo.processInfo.systemUptime + 5.5
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.55) { [weak self] in
+                self?.revealWhenMacIsVisible(epoch: epoch, deadline: deadline, stableSince: nil)
             }
         }
     }
 
-    private func revealWhenMacIsVisible(epoch: Int, deadline: TimeInterval) {
+    private func revealWhenMacIsVisible(epoch: Int, deadline: TimeInterval, stableSince: TimeInterval?) {
         guard fadeGeneration == epoch else { return }
         if ProcessInfo.processInfo.systemUptime >= deadline {
             fade.reveal()
             return
         }
         fade.cover()
-        let retry = { [weak self] in
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
-                self?.revealWhenMacIsVisible(epoch: epoch, deadline: deadline)
+        let retry = { [weak self] (since: TimeInterval?) in
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.22) {
+                self?.revealWhenMacIsVisible(epoch: epoch, deadline: deadline, stableSince: since)
             }
         }
-        guard let monitor, let settings else { retry(); return }
+        guard let monitor, let settings else { retry(nil); return }
         BrightnessService.shared.workstationInput(for: monitor) { [weak self] result in
             guard let self, self.fadeGeneration == epoch else { return }
             if case let .current(code) = result, code == settings.mac.code {
-                self.fade.reveal()
+                let now = ProcessInfo.processInfo.systemUptime
+                let since = stableSince ?? now
+                if now - since >= 1.9 {
+                    self.fade.reveal()
+                } else {
+                    retry(since)
+                }
             } else {
-                retry()
+                retry(nil)
             }
         }
     }
@@ -405,7 +411,6 @@ final class WorkstationSwitchService: ObservableObject {
 private final class WorkstationFade {
     private var panel: NSPanel?
     private var revision = 0
-    private static let duration = 0.38
 
     func cover() {
         revision &+= 1
@@ -416,7 +421,7 @@ private final class WorkstationFade {
         revision &+= 1
         let started = revision
         guard let panel = show(opacity: 0) else { completion(); return }
-        animate(panel, to: 1) { [weak self] in
+        animate(panel, to: 1, duration: 0.38) { [weak self] in
             guard self?.revision == started else { return }
             completion()
         }
@@ -426,7 +431,7 @@ private final class WorkstationFade {
         revision &+= 1
         let started = revision
         guard let panel else { return }
-        animate(panel, to: 0) { [weak self] in
+        animate(panel, to: 0, duration: 0.56) { [weak self] in
             guard let self, self.revision == started else { return }
             self.clear()
         }
@@ -470,9 +475,10 @@ private final class WorkstationFade {
         return window
     }
 
-    private func animate(_ window: NSPanel, to opacity: CGFloat, completion: @escaping () -> Void) {
+    private func animate(_ window: NSPanel, to opacity: CGFloat, duration: TimeInterval,
+                         completion: @escaping () -> Void) {
         NSAnimationContext.runAnimationGroup { context in
-            context.duration = Self.duration
+            context.duration = duration
             window.animator().alphaValue = opacity
         } completionHandler: {
             completion()
