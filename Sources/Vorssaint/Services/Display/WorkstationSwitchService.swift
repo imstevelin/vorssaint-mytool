@@ -6,6 +6,7 @@ import Carbon.HIToolbox
 
 enum WorkstationInputResult {
     case current(UInt16)
+    case dark(UInt16)
     case sent
     case unavailable
 }
@@ -323,7 +324,7 @@ final class WorkstationSwitchService: ObservableObject {
             }
         } else {
             fade.cover()
-            let deadline = ProcessInfo.processInfo.systemUptime + 8.2
+            let deadline = ProcessInfo.processInfo.systemUptime + 11
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.55) { [weak self] in
                 self?.revealWhenMacIsVisible(epoch: epoch, deadline: deadline, stableSince: nil)
             }
@@ -343,18 +344,22 @@ final class WorkstationSwitchService: ObservableObject {
             }
         }
         guard covered, let monitor, let settings else { retry(nil); return }
-        BrightnessService.shared.workstationInput(for: monitor) { [weak self] result in
+        BrightnessService.shared.workstationInput(for: monitor, checkBacklight: true) { [weak self] result in
             guard let self, self.fadeGeneration == epoch else { return }
-            if case let .current(code) = result, code == settings.mac.code {
-                let now = ProcessInfo.processInfo.systemUptime
-                let since = max(stableSince ?? now, self.fade.lastDisplayChange)
-                if now - since >= 3.4 {
-                    self.fade.reveal()
-                } else {
-                    retry(since)
-                }
-            } else {
+            let ready: Bool
+            switch result {
+            case let .current(code) where code == settings.mac.code: ready = true
+            case let .dark(code) where code == settings.mac.code: ready = false
+            default:
                 retry(nil)
+                return
+            }
+            let now = ProcessInfo.processInfo.systemUptime
+            let since = max(stableSince ?? now, self.fade.lastDisplayChange)
+            if ready, now - since >= 3.4 {
+                self.fade.reveal()
+            } else {
+                retry(since)
             }
         }
     }
