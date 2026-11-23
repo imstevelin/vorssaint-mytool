@@ -51,7 +51,7 @@ enableHeartbeat=true
 heartbeat=3000
 externalConfig=true
 externalConfigFile="$profile/workstation.conf"
-protocol=deskflow
+protocol=barrier
 
 [computer_workstation-mac]
 name=workstation-mac
