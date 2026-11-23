@@ -319,7 +319,12 @@ final class FeatureRuntime: ObservableObject {
             KeepAwakeManager.shared.syncWithFeatures()
             HotkeyManager.shared.syncWithPreferences()
         },
-        .brightness: { BrightnessService.shared.syncWithPreferences() },
+        .brightness: {
+            BrightnessService.shared.syncWithPreferences()
+            if UserDefaults.standard.bool(forKey: DefaultsKey.workstationEnabled) {
+                WorkstationSwitchService.shared.syncWithPreferences()
+            }
+        },
         .extraBrightness: { ExtraBrightnessService.shared.syncWithPreferences() },
         .bluetoothSleep: { BluetoothSleepService.shared.syncWithPreferences() },
         .quickLauncher: { QuickLauncherService.shared.syncWithPreferences() },

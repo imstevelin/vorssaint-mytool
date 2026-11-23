@@ -238,6 +238,7 @@ enum SettingsDirectory {
         let categories = FeatureStrings.settingsCategories(language)
         let quitProtection = FeatureStrings.quitProtection(language)
         let brightness = FeatureStrings.brightness(language)
+        let workstation = FeatureStrings.workstationSwitch(language)
         let bluetooth = FeatureStrings.bluetoothSleep(language)
         let barStyle = FeatureStrings.menuBarAppearance(language)
         let previews = FeatureStrings.windowPreviewExclusions(language)
@@ -365,6 +366,8 @@ enum SettingsDirectory {
                                               feature: .brightness, when: state.on(DefaultsKey.brightnessControlEnabled)),
                                         .init([brightness.volumeKeysToggle], feature: .brightness,
                                               when: state.on(DefaultsKey.brightnessControlEnabled) && state.on(DefaultsKey.displayVolumeEnabled)),
+                                        .init([workstation.title, workstation.deskflowServer, workstation.macInput, workstation.windowsInput],
+                                              feature: .brightness, when: state.on(DefaultsKey.brightnessControlEnabled)),
                                         .init([brightness.speakersStep, brightness.speakersMinimum, brightness.speakersMaximum],
                                               feature: .brightness, when: state.on(DefaultsKey.brightnessControlEnabled)
                                                 && state.on(DefaultsKey.displayVolumeEnabled) && state.on(DefaultsKey.displayVolumeKeysEnabled)),

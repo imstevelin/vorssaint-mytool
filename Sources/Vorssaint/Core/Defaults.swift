@@ -280,6 +280,11 @@ enum DefaultsKey {
     // the next start, it means the previous one died on the way up.
     static let startupDidNotFinish = "startupDidNotFinish"
     static let bluetoothSleepEnabled = "bluetoothSleepEnabled"
+    static let workstationEnabled = "workstationEnabled"
+    static let workstationDeskflowEnabled = "workstationDeskflowEnabled"
+    static let workstationMacInput = "workstationMacInput"
+    static let workstationWindowsInput = "workstationWindowsInput"
+    static let workstationShortcut = "workstationShortcut"
     static let bluetoothAudioRecoveryEnabled = "bluetoothAudioRecoveryEnabled"
     // Selected Core Audio UIDs and display names; an empty list never restarts Bluetooth.
     static let bluetoothAudioRecoveryDevices = "bluetoothAudioRecoveryDevices"

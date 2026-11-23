@@ -3310,6 +3310,37 @@ final class BrightnessService: ObservableObject {
         }
     }
 
+    /// VCP 0x60 is an enumeration of physical inputs. Keep it out of the
+    /// normalized slider controls and share their serialized DDC transport.
+    func workstationInput(for id: CGDirectDisplayID, from expected: UInt16? = nil, to target: UInt16? = nil,
+                          completion: @escaping (WorkstationInputResult) -> Void) {
+        stateLock.lock()
+        let route = hardwareRoutes[id]
+        stateLock.unlock()
+        guard let route else { completion(.unavailable); return }
+        workQueue.async {
+            let result: WorkstationInputResult
+            self.stateLock.lock()
+            let valid = self.hardwareRoutes[id]?.service === route.service
+                && self.hardwareRoutes[id]?.identity == route.identity
+            self.stateLock.unlock()
+            if !valid || Self.displayFingerprint(id) != route.fingerprint || CGDisplayIsOnline(id) == 0 {
+                result = .unavailable
+            } else if let reading = self.ddcReadControl(0x60, for: id, service: route.service, chip: route.chipAddress) {
+                if let target, let expected, reading.current == expected {
+                    let accepted = self.ddcSend(to: id, service: route.service, chip: route.chipAddress,
+                        packet: BrightnessSupport.writePacket(code: 0x60, value: target))
+                    result = accepted ? .sent : .unavailable
+                } else {
+                    result = .current(reading.current)
+                }
+            } else {
+                result = .unavailable
+            }
+            DispatchQueue.main.async { completion(result) }
+        }
+    }
+
     #if VORSSAINT_DEVELOPMENT
     func readHardwareForValidation(_ code: UInt8, for id: CGDirectDisplayID,
                                     completion: @escaping (DisplayHardwareValue?) -> Void) {

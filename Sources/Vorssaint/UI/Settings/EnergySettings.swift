@@ -16,6 +16,12 @@ struct EnergySettings: View {
     @ObservedObject private var extraBrightness = ExtraBrightnessService.shared
     @ObservedObject private var brightness = BrightnessService.shared
     @AppStorage(DefaultsKey.brightnessControlEnabled) private var brightnessEnabled = false
+    @AppStorage(DefaultsKey.workstationEnabled) private var workstationEnabled = false
+    @AppStorage(DefaultsKey.workstationDeskflowEnabled) private var workstationDeskflow = false
+    @State private var workstationWindowsFingerprint = ""
+    @AppStorage(DefaultsKey.workstationMacInput) private var workstationMacInput = WorkstationPort.hdmi1.rawValue
+    @AppStorage(DefaultsKey.workstationWindowsInput) private var workstationWindowsInput = WorkstationPort.hdmi2.rawValue
+    @ObservedObject private var workstation = WorkstationSwitchService.shared
     @AppStorage(DefaultsKey.brightnessKeysEnabled) private var brightnessKeysEnabled = false
     @AppStorage(DefaultsKey.brightnessOSDEnabled) private var brightnessOSDEnabled = false
     @AppStorage(DefaultsKey.displayVolumeEnabled) private var displayVolume = false
@@ -58,6 +64,7 @@ struct EnergySettings: View {
                 if (focus == nil || focus == .brightness), AppFeature.brightness.isAvailable {
                     displaysCard
                         .settingsSectionAnchor(.brightness, cornerRadius: 16)
+                    if brightnessEnabled { workstationCard }
                 }
                 if (focus == nil || focus == .extraBrightness), AppFeature.extraBrightness.isAvailable {
                     extraBrightnessCard
@@ -305,6 +312,7 @@ struct EnergySettings: View {
                     .labelsHidden()
                     .onChange(of: brightnessEnabled) { _, _ in
                         BrightnessService.shared.syncWithPreferences()
+                        workstation.syncWithPreferences()
                     }
             }
             if brightnessEnabled {
@@ -402,6 +410,99 @@ struct EnergySettings: View {
                         .font(.subheadline.weight(.medium))
                 }
             }
+        }
+    }
+
+    private var workstationCard: some View {
+        let strings = FeatureStrings.workstationSwitch(l10n.language)
+        return SettingsCard(title: strings.title) {
+            Toggle(strings.title, isOn: $workstationEnabled)
+                .onChange(of: workstationEnabled) { _, _ in workstation.syncWithPreferences() }
+            if workstationEnabled {
+                ForEach([true, false], id: \.self) { isMac in
+                    Picker(isMac ? strings.macInput : strings.windowsInput, selection: isMac ? $workstationMacInput : $workstationWindowsInput) {
+                        ForEach(WorkstationPort.allCases) { port in Text(port.label).tag(port.rawValue) }
+                    }
+                }
+                Toggle(strings.deskflowServer, isOn: $workstationDeskflow)
+                    .onChange(of: workstationDeskflow) { _, _ in workstation.syncWithPreferences() }
+                workstationPairing
+                if workstationDeskflow {
+                    if !permissions.accessibility {
+                        Button(DisplayControlText.text("允許輔助使用", "Allow Accessibility")) {
+                            permissions.requestAccessibility()
+                        }
+                    }
+                    Button(DisplayControlText.text("開啟 Deskflow 設定資料夾", "Open Deskflow profile folder")) {
+                        workstation.openDeskflowDirectory()
+                    }
+                }
+                HStack {
+                    Button(DisplayControlText.text("讀取目前來源", "Read current input")) { workstation.diagnose() }
+                    Button(DisplayControlText.text("切到 Windows", "Switch to Windows")) { workstation.switchToWindows() }
+                        .disabled(workstationDeskflow || workstationMacInput == workstationWindowsInput)
+                }
+                .disabled(workstation.busy)
+                if workstationMacInput == workstationWindowsInput {
+                    Text(DisplayControlText.text("兩台電腦必須使用不同接孔。", "Choose different inputs for the two computers."))
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                Text(workstation.shortcutAvailable ? WorkstationSwitchService.shortcutLabel : DisplayControlText.text("快捷鍵已被占用，請使用按鈕。", "The shortcut is in use. Use the button."))
+                    .font(.caption).foregroundStyle(.secondary)
+                if !workstation.status.isEmpty {
+                    Text(workstation.status).font(.caption).foregroundStyle(.secondary)
+                }
+            }
+        }
+        .onChange(of: workstationMacInput) { _, _ in workstation.syncWithPreferences() }
+        .onChange(of: workstationWindowsInput) { _, _ in workstation.syncWithPreferences() }
+    }
+
+    private var workstationPairing: some View {
+        let addressLabel = DisplayControlText.text("Mac 區網位址", "Mac LAN address")
+        let macLabel = DisplayControlText.text("Mac 指紋", "Mac fingerprint")
+        let windowsLabel = DisplayControlText.text("Windows 指紋", "Windows fingerprint")
+        return VStack(alignment: .leading, spacing: 8) {
+            Text(DisplayControlText.text("在 Windows 輸入這裡的 Mac 位址與指紋，再把 Windows 指紋貼到下方。",
+                                         "Enter this Mac address and fingerprint on Windows, then paste the Windows fingerprint here."))
+                .font(.caption).foregroundStyle(.secondary)
+            workstationPairingValue(addressLabel, workstation.lanAddress)
+            workstationPairingValue(macLabel, workstation.localFingerprint)
+            TextField(windowsLabel, text: $workstationWindowsFingerprint)
+                .font(.system(.body, design: .monospaced))
+            HStack {
+                Button(DisplayControlText.text("儲存配對並啟動", "Save pairing and start")) {
+                    workstation.savePairing(workstationWindowsFingerprint) { workstationDeskflow = true }
+                }
+                .disabled(workstationWindowsFingerprint.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                Button(DisplayControlText.text("移除 Windows 配對", "Remove Windows pairing")) {
+                    workstation.forgetPairing()
+                }
+                .disabled(workstation.pairedFingerprint.isEmpty)
+            }
+            let connection = workstation.clientConnected
+                ? DisplayControlText.text("Windows 已驗證並連線。", "Windows is authenticated and connected.")
+                : workstation.pairedFingerprint.isEmpty
+                    ? DisplayControlText.text("尚未配對 Windows。", "Windows is not paired.")
+                    : DisplayControlText.text("已儲存 Windows 配對，等待連線。", "Windows pairing is saved. Waiting for a connection.")
+            Text(connection).font(.caption).foregroundStyle(.secondary)
+        }
+        .disabled(workstation.pairingBusy)
+        .onAppear { workstation.loadPairing() }
+        .onReceive(workstation.$pairedFingerprint) { workstationWindowsFingerprint = $0 }
+    }
+
+    private func workstationPairingValue(_ label: String, _ value: String) -> some View {
+        HStack {
+            Text(label)
+            Text(value).font(.system(.caption, design: .monospaced)).textSelection(.enabled)
+            Spacer()
+            Button(DisplayControlText.text("複製", "Copy")) {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(value, forType: .string)
+            }
+            .disabled(value.isEmpty)
+            .accessibilityLabel(DisplayControlText.text("複製 \(label)", "Copy \(label)"))
         }
     }
 
