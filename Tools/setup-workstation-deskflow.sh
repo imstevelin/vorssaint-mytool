@@ -24,14 +24,8 @@ if [[ $# -ne 1 || ! "$pin" =~ ^[0-9a-f]{64}$ ]]; then
 fi
 printf 'v2:sha256:%s\n' "$pin" > "$tls/trusted-clients"
 cat > "$profile/workstation.conf" <<'EOF'
-section: screens
-    workstation-mac:
-    workstation-windows:
-end
 section: options
-    heartbeat = 3000
-    clipboardSharing = false
-    keystroke(ctrl+alt+shift+F9) = switchToNextScreen()
+    keystroke(Control+Alt+Shift+F9) = switchToNextScreen
 end
 EOF
 cat > "$profile/Deskflow.conf" <<EOF
@@ -52,7 +46,16 @@ checkPeerFingerprints=true
 certificate="$pem"
 
 [server]
+enableClipboard=false
+enableHeartbeat=true
+heartbeat=3000
 externalConfig=true
 externalConfigFile="$profile/workstation.conf"
 protocol=deskflow
+
+[computer_workstation-mac]
+name=workstation-mac
+
+[computer_workstation-windows]
+name=workstation-windows
 EOF
