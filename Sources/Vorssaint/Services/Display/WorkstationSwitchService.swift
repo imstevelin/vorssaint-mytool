@@ -82,7 +82,8 @@ final class WorkstationSwitchService: ObservableObject {
             cursor = entry.ifa_next
             guard let address = entry.ifa_addr, address.pointee.sa_family == UInt8(AF_INET),
                   entry.ifa_flags & UInt32(IFF_LOOPBACK) == 0,
-                  entry.ifa_flags & UInt32(IFF_UP) != 0 else { continue }
+                  entry.ifa_flags & UInt32(IFF_UP) != 0,
+                  entry.ifa_flags & UInt32(IFF_RUNNING) != 0 else { continue }
             var host = [CChar](repeating: 0, count: Int(NI_MAXHOST))
             let hostLength = socklen_t(host.count)
             if getnameinfo(address, socklen_t(address.pointee.sa_len), &host, hostLength, nil, 0, NI_NUMERICHOST) == 0 {
@@ -106,14 +107,21 @@ final class WorkstationSwitchService: ObservableObject {
                     return
                 }
                 self.pairingInvitation = invitation
-                invitation.start(onCode: { [weak self] in self?.pairingCode = $0 },
-                                 onEnd: { [weak self] error in
-                    self?.cancelPairingCode()
-                    if let error { self?.status = error.localizedDescription }
-                }) { [weak self] pin, reply in
-                    guard let self, !self.pairingBusy else { reply(false); return }
+                invitation.start(onCode: { [weak self, weak invitation] code in
+                    guard let self, let invitation, self.pairingInvitation === invitation else { return }
+                    self.pairingCode = code
+                }, onEnd: { [weak self, weak invitation] error in
+                    guard let self, let invitation, self.pairingInvitation === invitation else { return }
+                    self.cancelPairingCode()
+                    if let error { self.status = error.localizedDescription }
+                }) { [weak self, weak invitation] pin, reply in
+                    guard let self, let invitation, self.pairingInvitation === invitation, !self.pairingBusy else {
+                        reply(false)
+                        return
+                    }
                     self.updatePairing(pin, onFailure: { reply(false) }) {
                         reply(true)
+                        guard self.pairingInvitation === invitation else { return }
                         UserDefaults.standard.set(true, forKey: DefaultsKey.workstationDeskflowEnabled)
                         self.pairingCode = ""
                     }
