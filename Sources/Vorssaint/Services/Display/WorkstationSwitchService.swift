@@ -546,7 +546,10 @@ private final class WorkstationKeyRelay {
         if tap != nil { return true }
         capsOn = CGEventSource.flagsState(.combinedSessionState).contains(.maskAlphaShift)
         let systemDefined = CleaningSystemKeyEvent.systemDefinedEventTypeRawValue
-        let mask = (CGEventMask(1) << CGEventType.flagsChanged.rawValue) | (CGEventMask(1) << systemDefined)
+        let mask = (CGEventMask(1) << CGEventType.flagsChanged.rawValue)
+            | (CGEventMask(1) << CGEventType.keyDown.rawValue)
+            | (CGEventMask(1) << CGEventType.keyUp.rawValue)
+            | (CGEventMask(1) << systemDefined)
         guard let port = CGEvent.tapCreate(tap: .cghidEventTap, place: .headInsertEventTap, options: .defaultTap,
                     eventsOfInterest: mask, callback: { proxy, type, event, context in
             guard let context else { return Unmanaged.passUnretained(event) }
@@ -574,16 +577,27 @@ private final class WorkstationKeyRelay {
             if let tap { CGEvent.tapEnable(tap: tap, enable: true) }
             return false
         }
+        if type == .keyDown || type == .keyUp {
+            guard forwarding else { return false }
+            let keyCode = Int(event.getIntegerValueField(.keyboardEventKeycode))
+            let modifiers = event.flags.intersection([.maskCommand, .maskControl, .maskAlternate, .maskShift])
+            guard let key = BrightnessSupport.brightnessFunctionKeyEvent(
+                keyCode: keyCode, isKeyDown: type == .keyDown,
+                isRepeat: event.getIntegerValueField(.keyboardEventAutorepeat) != 0,
+                hasModifiers: !modifiers.isEmpty, functionKeysAdjustBrightness: false
+            ) else { return false }
+            relayBrightness(key, event: event, proxy: proxy)
+            return true
+        }
         if type.rawValue == CleaningSystemKeyEvent.systemDefinedEventTypeRawValue {
             guard forwarding, let media = NSEvent(cgEvent: event),
                   let key = BrightnessSupport.brightnessKeyEvent(subtype: Int(media.subtype.rawValue), data1: media.data1) else {
                 return false
             }
-            // Windows Deskflow handles native volume/playback keys. Its
-            // client has no display brightness action, so use regular keys.
-            if key.isKeyDown { post(key.delta < 0 ? kVK_F18 : kVK_F19, event: event, proxy: proxy) }
+            relayBrightness(key, event: event, proxy: proxy)
             return true
         }
+        guard type == .flagsChanged else { return false }
         let previous = capsOn
         capsOn = event.flags.contains(.maskAlphaShift)
         guard forwarding, capsOn != previous,
@@ -591,6 +605,12 @@ private final class WorkstationKeyRelay {
         // Deskflow discards Caps Lock on the receiving end.
         post(kVK_F20, event: event, proxy: proxy)
         return false
+    }
+
+    private func relayBrightness(_ key: BrightnessSupport.BrightnessKeyEvent, event: CGEvent, proxy: CGEventTapProxy) {
+        // The Windows Deskflow client handles native volume and playback
+        // keys. Brightness travels as an ordinary key to the Windows tray.
+        if key.isKeyDown { post(key.delta < 0 ? kVK_F18 : kVK_F19, event: event, proxy: proxy) }
     }
 
     private func post(_ code: Int, event: CGEvent, proxy: CGEventTapProxy) {
