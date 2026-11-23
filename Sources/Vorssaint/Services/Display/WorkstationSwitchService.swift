@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import AppKit
+import ApplicationServices
 import Carbon.HIToolbox
 
 enum WorkstationInputResult {
@@ -81,6 +82,10 @@ final class WorkstationSwitchService: ObservableObject {
 
     private func startDeskflow() {
         guard deskflow == nil else { return }
+        guard AXIsProcessTrusted() else {
+            status = DisplayControlText.text("請先允許實用小工具使用輔助使用。", "Allow this app in macOS Accessibility before starting Deskflow.")
+            return
+        }
         let executable = URL(fileURLWithPath: "/Applications/Deskflow.app/Contents/MacOS/deskflow-core")
         let config = Self.deskflowDirectory.appendingPathComponent("Deskflow.conf")
         guard FileManager.default.isExecutableFile(atPath: executable.path),

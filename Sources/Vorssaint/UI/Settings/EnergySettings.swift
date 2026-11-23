@@ -426,6 +426,11 @@ struct EnergySettings: View {
                 Toggle(strings.deskflowServer, isOn: $workstationDeskflow)
                     .onChange(of: workstationDeskflow) { _, _ in workstation.syncWithPreferences() }
                 if workstationDeskflow {
+                    if !permissions.accessibility {
+                        Button(DisplayControlText.text("允許輔助使用", "Allow Accessibility")) {
+                            permissions.requestAccessibility()
+                        }
+                    }
                     Button(DisplayControlText.text("開啟 Deskflow 設定資料夾", "Open Deskflow profile folder")) {
                         workstation.openDeskflowDirectory()
                     }
