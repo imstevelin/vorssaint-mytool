@@ -323,7 +323,7 @@ final class WorkstationSwitchService: ObservableObject {
             }
         } else {
             fade.cover()
-            let deadline = ProcessInfo.processInfo.systemUptime + 5.5
+            let deadline = ProcessInfo.processInfo.systemUptime + 8.2
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.55) { [weak self] in
                 self?.revealWhenMacIsVisible(epoch: epoch, deadline: deadline, stableSince: nil)
             }
@@ -336,19 +336,19 @@ final class WorkstationSwitchService: ObservableObject {
             fade.reveal()
             return
         }
-        fade.cover()
+        let covered = fade.cover()
         let retry = { [weak self] (since: TimeInterval?) in
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.22) {
                 self?.revealWhenMacIsVisible(epoch: epoch, deadline: deadline, stableSince: since)
             }
         }
-        guard let monitor, let settings else { retry(nil); return }
+        guard covered, let monitor, let settings else { retry(nil); return }
         BrightnessService.shared.workstationInput(for: monitor) { [weak self] result in
             guard let self, self.fadeGeneration == epoch else { return }
             if case let .current(code) = result, code == settings.mac.code {
                 let now = ProcessInfo.processInfo.systemUptime
-                let since = stableSince ?? now
-                if now - since >= 1.9 {
+                let since = max(stableSince ?? now, self.fade.lastDisplayChange)
+                if now - since >= 3.4 {
                     self.fade.reveal()
                 } else {
                     retry(since)
@@ -427,27 +427,60 @@ final class WorkstationSwitchService: ObservableObject {
 private final class WorkstationFade {
     private var panel: NSPanel?
     private var revision = 0
+    private var keepCovered = false
+    private var screenObserver: NSObjectProtocol?
+    private(set) var lastDisplayChange: TimeInterval = 0
 
-    func cover() {
-        revision &+= 1
-        show(opacity: 1)?.alphaValue = 1
+    init() {
+        screenObserver = NotificationCenter.default.addObserver(
+            forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            guard let self else { return }
+            self.lastDisplayChange = ProcessInfo.processInfo.systemUptime
+            if self.keepCovered { self.cover() }
+        }
+    }
+
+    deinit {
+        if let screenObserver { NotificationCenter.default.removeObserver(screenObserver) }
+    }
+
+    @discardableResult
+    func cover() -> Bool {
+        if !keepCovered { revision &+= 1 }
+        keepCovered = true
+        guard let panel = show(opacity: 1) else {
+            self.panel?.orderOut(nil)
+            self.panel = nil
+            return false
+        }
+        panel.alphaValue = 1
+        if !panel.isVisible { panel.orderFrontRegardless() }
+        return true
     }
 
     func darkening(completion: @escaping () -> Void) {
         revision &+= 1
+        keepCovered = false
         let started = revision
-        guard let panel = show(opacity: 0) else { completion(); return }
+        guard let panel = show(opacity: 0) else {
+            cover()
+            completion()
+            return
+        }
         animate(panel, to: 1, duration: 0.38) { [weak self] in
-            guard self?.revision == started else { return }
+            guard let self, self.revision == started else { return }
+            self.cover()
             completion()
         }
     }
 
     func reveal() {
         revision &+= 1
+        keepCovered = false
         let started = revision
         guard let panel else { return }
-        animate(panel, to: 0, duration: 0.56) { [weak self] in
+        animate(panel, to: 0, duration: 0.82) { [weak self] in
             guard let self, self.revision == started else { return }
             self.clear()
         }
@@ -455,6 +488,7 @@ private final class WorkstationFade {
 
     func clear() {
         revision &+= 1
+        keepCovered = false
         panel?.orderOut(nil)
         panel = nil
     }
