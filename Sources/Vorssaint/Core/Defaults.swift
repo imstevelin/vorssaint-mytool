@@ -281,7 +281,7 @@ enum DefaultsKey {
     static let startupDidNotFinish = "startupDidNotFinish"
     static let bluetoothSleepEnabled = "bluetoothSleepEnabled"
     static let workstationEnabled = "workstationEnabled"
-    static let workstationBluetoothEnabled = "workstationBluetoothEnabled"
+    static let workstationDeskflowEnabled = "workstationDeskflowEnabled"
     static let workstationMacInput = "workstationMacInput"
     static let workstationWindowsInput = "workstationWindowsInput"
     static let workstationShortcut = "workstationShortcut"

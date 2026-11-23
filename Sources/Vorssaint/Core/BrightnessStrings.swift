@@ -5,7 +5,7 @@ import Foundation
 
 struct WorkstationSwitchStrings {
     let title: String
-    let bluetoothFollow: String
+    let deskflowServer: String
     let macInput: String
     let windowsInput: String
 }
@@ -14,13 +14,13 @@ extension FeatureStrings {
     static func workstationSwitch(_ language: AppLanguage) -> WorkstationSwitchStrings {
         switch language {
         case .zhTW, .zhHK:
-            return .init(title: "Windows 工作台切換", bluetoothFollow: "鍵盤與觸控板跟隨輸入來源",
+            return .init(title: "Windows 工作台切換", deskflowServer: "啟動 Deskflow 區網伺服器",
                          macInput: "Mac 接孔", windowsInput: "Windows 接孔")
         case .zhHans:
-            return .init(title: "Windows 工作台切换", bluetoothFollow: "键盘与触控板跟随输入源",
+            return .init(title: "Windows 工作台切换", deskflowServer: "启动 Deskflow 局域网服务器",
                          macInput: "Mac 接口", windowsInput: "Windows 接口")
         default:
-            return .init(title: "Windows workstation switching", bluetoothFollow: "Keyboard and trackpad follow the display input",
+            return .init(title: "Windows workstation switching", deskflowServer: "Start Deskflow LAN server",
                          macInput: "Mac input", windowsInput: "Windows input")
         }
     }

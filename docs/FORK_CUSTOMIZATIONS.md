@@ -16,7 +16,7 @@
 
 ## 行為交集的處理
 
-PA328QV 工作台沿用顯示控制的 DDC 佇列操作 VCP `0x60`。藍牙交接獨立啟用，只操作已配對的 Magic Keyboard 和 Magic Trackpad。設定與驗收步驟見[無線工作台](WIRELESS_WORKSTATION.md)。
+PA328QV 工作台的 Mac 端管理 Deskflow 伺服器，配件保持連在 Mac。Windows 用戶端依輸入焦點切換 DDC/CI。Mac 仍可單獨使用內建 DDC 切換畫面。設定與驗收步驟見[區網工作台](WIRELESS_WORKSTATION.md)。
 
 - 官方與 fork 都改善同一路徑：保留官方共用修正，將 fork 契約接回，避免重複服務／輪詢。
 - 官方新介面移除客製功能：以小接點接回；本輪展開島保留官方 band 佈局，兩側對稱保留小夥伴空間，保持實體 camera gap 置中。

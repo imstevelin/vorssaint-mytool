@@ -366,7 +366,7 @@ enum SettingsDirectory {
                                               feature: .brightness, when: state.on(DefaultsKey.brightnessControlEnabled)),
                                         .init([brightness.volumeKeysToggle], feature: .brightness,
                                               when: state.on(DefaultsKey.brightnessControlEnabled) && state.on(DefaultsKey.displayVolumeEnabled)),
-                                        .init([workstation.title, workstation.bluetoothFollow, workstation.macInput, workstation.windowsInput],
+                                        .init([workstation.title, workstation.deskflowServer, workstation.macInput, workstation.windowsInput],
                                               feature: .brightness, when: state.on(DefaultsKey.brightnessControlEnabled)),
                                         .init([brightness.speakersStep, brightness.speakersMinimum, brightness.speakersMaximum],
                                               feature: .brightness, when: state.on(DefaultsKey.brightnessControlEnabled)

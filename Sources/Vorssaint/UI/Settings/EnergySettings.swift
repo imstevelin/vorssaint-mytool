@@ -17,7 +17,7 @@ struct EnergySettings: View {
     @ObservedObject private var brightness = BrightnessService.shared
     @AppStorage(DefaultsKey.brightnessControlEnabled) private var brightnessEnabled = false
     @AppStorage(DefaultsKey.workstationEnabled) private var workstationEnabled = false
-    @AppStorage(DefaultsKey.workstationBluetoothEnabled) private var workstationBluetooth = false
+    @AppStorage(DefaultsKey.workstationDeskflowEnabled) private var workstationDeskflow = false
     @AppStorage(DefaultsKey.workstationMacInput) private var workstationMacInput = WorkstationPort.hdmi1.rawValue
     @AppStorage(DefaultsKey.workstationWindowsInput) private var workstationWindowsInput = WorkstationPort.hdmi2.rawValue
     @ObservedObject private var workstation = WorkstationSwitchService.shared
@@ -423,16 +423,17 @@ struct EnergySettings: View {
                         ForEach(WorkstationPort.allCases) { port in Text(port.label).tag(port.rawValue) }
                     }
                 }
-                Toggle(strings.bluetoothFollow, isOn: $workstationBluetooth)
-                    .onChange(of: workstationBluetooth) { _, _ in workstation.syncWithPreferences() }
-                if workstationBluetooth {
-                    Text(DisplayControlText.text("兩端都要配對同一組 Magic Keyboard 和 Magic Trackpad，並開啟自動交接。", "Pair the same Magic Keyboard and Magic Trackpad on both computers and enable handoff on both."))
-                        .font(.caption).foregroundStyle(.secondary)
+                Toggle(strings.deskflowServer, isOn: $workstationDeskflow)
+                    .onChange(of: workstationDeskflow) { _, _ in workstation.syncWithPreferences() }
+                if workstationDeskflow {
+                    Button(DisplayControlText.text("開啟 Deskflow 設定資料夾", "Open Deskflow profile folder")) {
+                        workstation.openDeskflowDirectory()
+                    }
                 }
                 HStack {
                     Button(DisplayControlText.text("讀取目前來源", "Read current input")) { workstation.diagnose() }
                     Button(DisplayControlText.text("切到 Windows", "Switch to Windows")) { workstation.switchToWindows() }
-                        .disabled(workstationMacInput == workstationWindowsInput)
+                        .disabled(workstationDeskflow || workstationMacInput == workstationWindowsInput)
                 }
                 .disabled(workstation.busy)
                 if workstationMacInput == workstationWindowsInput {
